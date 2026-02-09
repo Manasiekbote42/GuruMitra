@@ -103,12 +103,12 @@ router.get('/teachers/feedback-summary', async (req, res) => {
   try {
     const result = await query(`
       SELECT u.id AS teacher_id, u.name AS teacher_name, u.department,
-             s.id AS session_id, s.status AS session_status, s.created_at AS session_at,
+             s.id AS session_id, s.status AS session_status, s.created_at AS session_at, s.analysis_result,
              f.strengths, f.improvements, f.recommendations,
              sc.overall_score, sc.clarity_score, sc.engagement_score, sc.interaction_score
       FROM users u
       LEFT JOIN LATERAL (
-        SELECT cs.id, cs.status, cs.created_at
+        SELECT cs.id, cs.status, cs.created_at, cs.analysis_result
         FROM classroom_sessions cs
         WHERE cs.teacher_id = u.id AND cs.status = 'completed'
         ORDER BY cs.created_at DESC LIMIT 1
@@ -132,6 +132,7 @@ router.get('/teachers/feedback-summary', async (req, res) => {
       strengths: r.strengths ? r.strengths.split('\n').filter(Boolean) : [],
       improvements: r.improvements ? r.improvements.split('\n').filter(Boolean) : [],
       recommendations: r.recommendations ? r.recommendations.split('\n').filter(Boolean) : [],
+      semantic_feedback: r.analysis_result?.semantic_feedback || null,
     }));
     res.json(list);
   } catch (err) {

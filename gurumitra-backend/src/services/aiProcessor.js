@@ -21,9 +21,9 @@ function hasValidAnalyzerScores(aiResponse) {
   );
 }
 
-/** Build full analysis_result JSON for storage (Part 3 spec). */
+/** Build full analysis_result JSON for storage (Part 3 spec). Includes semantic_feedback when present (Phase 4). */
 function buildAnalysisResult(sessionId, aiResponse) {
-  return {
+  const out = {
     session_id: sessionId,
     transcript_summary: aiResponse.transcript_summary || '',
     scores: {
@@ -40,11 +40,16 @@ function buildAnalysisResult(sessionId, aiResponse) {
       content: aiResponse.metrics?.content || {},
     },
   };
+  if (aiResponse.semantic_feedback && typeof aiResponse.semantic_feedback === 'object') {
+    out.semantic_feedback = aiResponse.semantic_feedback;
+  }
+  return out;
 }
 
-/** Build analysis_result from existing DB row (when reusing by content_hash). */
+/** Build analysis_result from existing DB row (when reusing by content_hash). Preserves semantic_feedback if present. */
 function buildAnalysisResultFromRow(sessionId, row) {
-  return {
+  const prev = row.analysis_result && typeof row.analysis_result === 'object' ? row.analysis_result : null;
+  const out = {
     session_id: sessionId,
     transcript_summary: row.transcript || '',
     scores: {
@@ -61,6 +66,8 @@ function buildAnalysisResultFromRow(sessionId, row) {
       content: row.content_metrics || {},
     },
   };
+  if (prev && prev.semantic_feedback) out.semantic_feedback = prev.semantic_feedback;
+  return out;
 }
 
 /**
@@ -89,7 +96,7 @@ export function processSessionAsync(sessionId, teacherId) {
 
       if (contentHash) {
         const existing = await query(
-          `SELECT cs.transcript, cs.audio_metrics, cs.content_metrics,
+          `SELECT cs.transcript, cs.audio_metrics, cs.content_metrics, cs.analysis_result,
                   f.strengths, f.improvements, f.recommendations,
                   sc.clarity_score, sc.engagement_score, sc.interaction_score, sc.overall_score
            FROM classroom_sessions cs

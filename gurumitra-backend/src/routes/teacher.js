@@ -160,6 +160,7 @@ router.get('/sessions/latest', async (req, res) => {
           strengths: row.analysis_result?.strengths || (row.strengths ? row.strengths.split('\n').filter(Boolean) : []),
           improvements: row.analysis_result?.improvements || (row.improvements ? row.improvements.split('\n').filter(Boolean) : []),
           recommendations: row.analysis_result?.recommendations || (row.recommendations ? row.recommendations.split('\n').filter(Boolean) : []),
+          semantic_feedback: row.analysis_result?.semantic_feedback || null,
         }
       : null;
     res.json({ session, summary });
@@ -201,20 +202,23 @@ router.get('/sessions/:sessionId/feedback', async (req, res) => {
       return res.status(200).json({ status: 'processing', message: 'AI analysis in progress' });
     }
 
-    const feedbackResult = await query(
-      'SELECT session_id, strengths, improvements, recommendations, created_at FROM feedback WHERE session_id = $1',
-      [sessionId]
-    );
+    const [feedbackResult, sessionRow] = await Promise.all([
+      query('SELECT session_id, strengths, improvements, recommendations, created_at FROM feedback WHERE session_id = $1', [sessionId]),
+      query('SELECT analysis_result FROM classroom_sessions WHERE id = $1 AND teacher_id = $2', [sessionId, teacherId]),
+    ]);
     const row = feedbackResult.rows[0];
     if (!row) {
       return res.status(200).json({ status: 'processing', message: 'AI analysis in progress' });
     }
+    const analysisResult = sessionRow.rows[0]?.analysis_result || null;
+    const semanticFeedback = analysisResult && typeof analysisResult.semantic_feedback === 'object' ? analysisResult.semantic_feedback : null;
 
     res.json({
       session_id: row.session_id,
       strengths: row.strengths ? row.strengths.split('\n').filter(Boolean) : [],
       improvements: row.improvements ? row.improvements.split('\n').filter(Boolean) : [],
       recommendations: row.recommendations ? row.recommendations.split('\n').filter(Boolean) : [],
+      semantic_feedback: semanticFeedback,
       generated_at: row.created_at,
     });
   } catch (err) {

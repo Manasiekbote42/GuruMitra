@@ -3,6 +3,7 @@ GuruMitra analyzer: audio metrics + speech-to-text (Whisper) + teaching-content 
 Deterministic, no randomness. Same video -> same transcript -> same feedback.
 Uses ffmpeg for audio extraction. Set FFMPEG_PATH to full path to ffmpeg.exe if not on PATH.
 """
+import json
 import os
 import re
 import shutil
@@ -458,6 +459,118 @@ THRESHOLD_DURATION_STRENGTH_MIN = 15.0  # minutes
 THRESHOLD_DURATION_IMPROVE_MIN = 10.0   # minutes
 SCORE_DECIMALS = 1
 
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+
+
+def _generate_feedback_with_gemini(
+    metrics: dict,
+    content_insights: Optional[dict],
+    transcript: str,
+    segment_insights: Optional[list],
+    content_by_parts: Optional[dict],
+    key_phrases: Optional[list],
+) -> Optional[dict]:
+    """
+    Call Google Gemini API to generate teaching feedback. Returns same shape as generate_feedback
+    or None on failure (caller should fall back to rule-based feedback).
+    Requires GEMINI_API_KEY. Optional: GEMINI_MODEL (default gemini-2.0-flash).
+    """
+    api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not api_key:
+        return None
+    try:
+        from google import genai
+    except ImportError:
+        return None
+
+    duration_min = float(metrics.get("duration_seconds", 0)) / 60.0
+    speech_ratio = float(metrics.get("speech_ratio", 0.5))
+    energy = float(metrics.get("audio_energy", 0.5))
+    q_count = (content_insights or {}).get("question_count", 0)
+    ex_count = (content_insights or {}).get("example_count", 0)
+    parts = content_by_parts or {}
+    transcript_excerpt = (transcript or "").strip()[:3000]
+    phrases = key_phrases or []
+
+    prompt = f"""You are an expert teaching coach. Based on the following classroom session data, produce feedback in the exact JSON format below. No other text.
+
+Session data:
+- Duration: {duration_min:.1f} minutes
+- Speech ratio (fraction of time with speech): {speech_ratio:.2f}
+- Audio energy (0-1): {energy:.2f}
+- Questions detected: {q_count}
+- Examples/illustrations detected: {ex_count}
+- Key phrases from transcript: {phrases[:8]}
+- Opening (first 20%): questions={parts.get('opening', {}).get('question_count', 0)}, examples={parts.get('opening', {}).get('example_count', 0)}
+- Middle (60%): questions={parts.get('middle', {}).get('question_count', 0)}, examples={parts.get('middle', {}).get('example_count', 0)}
+- Closing (last 20%): questions={parts.get('closing', {}).get('question_count', 0)}, examples={parts.get('closing', {}).get('example_count', 0)}
+
+Transcript excerpt:
+{transcript_excerpt or "(no transcript)"}
+
+Respond with a single JSON object only (no markdown, no code block), with these exact keys:
+- pedagogy_score: number 1-5 (teaching clarity, structure, explanation)
+- engagement_score: number 1-5 (interaction, questions, student engagement)
+- delivery_score: number 1-5 (speaking time, pacing, audio quality)
+- curriculum_score: number 1-5 (overall alignment and coverage)
+- feedback: string (one short summary sentence for the teacher)
+- strengths: array of strings (2-5 specific strengths from this session)
+- improvements: array of strings (2-5 specific areas to improve)
+- recommendations: array of strings (2-4 actionable next steps)
+"""
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+        )
+        text = (response.text or "").strip()
+        if not text:
+            return None
+        # Strip markdown code block if present
+        if text.startswith("```"):
+            lines = text.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines)
+        data = json.loads(text)
+        # Validate and normalize
+        def clamp_score(v):
+            try:
+                return round(min(5.0, max(0.0, float(v))), SCORE_DECIMALS)
+            except (TypeError, ValueError):
+                return 3.5
+        pedagogy_score = clamp_score(data.get("pedagogy_score"))
+        engagement_score = clamp_score(data.get("engagement_score"))
+        delivery_score = clamp_score(data.get("delivery_score"))
+        curriculum_score = clamp_score(data.get("curriculum_score"))
+        feedback_str = str(data.get("feedback") or "Session reviewed.").strip() or "Session reviewed."
+        strengths = [str(s).strip() for s in (data.get("strengths") or []) if str(s).strip()][:10]
+        improvements = [str(s).strip() for s in (data.get("improvements") or []) if str(s).strip()][:10]
+        recommendations = [str(s).strip() for s in (data.get("recommendations") or []) if str(s).strip()][:8]
+        if not strengths:
+            strengths = ["Session recorded and reviewed."]
+        if not improvements:
+            improvements = ["Consider one focus area from recommendations."]
+        if not recommendations:
+            recommendations = ["Review this feedback and focus on one improvement in your next video."]
+        return {
+            "pedagogy_score": pedagogy_score,
+            "engagement_score": engagement_score,
+            "delivery_score": delivery_score,
+            "curriculum_score": curriculum_score,
+            "feedback": feedback_str,
+            "strengths": strengths,
+            "improvements": improvements,
+            "recommendations": recommendations,
+            "metrics": metrics,
+        }
+    except Exception:
+        return None
+
 
 def generate_feedback(
     metrics: dict,
@@ -686,6 +799,7 @@ def run_analysis(video_path: str, session_id: Optional[str] = None) -> dict:
             "improvements": [],
             "recommendations": [],
             "metrics": {"audio": metrics_audio, "content": {}},
+            "semantic_feedback": None,
         }
     transcript_summary = transcript[:500] + ("..." if len(transcript) > 500 else "")
 
@@ -693,14 +807,25 @@ def run_analysis(video_path: str, session_id: Optional[str] = None) -> dict:
     segment_insights = analyze_segments(segments)
     content_by_parts = analyze_content_by_parts(transcript, segments, duration_seconds)
     key_phrases = extract_key_phrases(transcript)
-    feedback_result = generate_feedback(
+
+    # Use Gemini for feedback when GEMINI_API_KEY is set; otherwise rule-based
+    feedback_result = _generate_feedback_with_gemini(
         metrics_audio,
-        content_insights=content_insights,
-        transcript=transcript,
-        segment_insights=segment_insights,
-        content_by_parts=content_by_parts,
-        key_phrases=key_phrases,
+        content_insights,
+        transcript,
+        segment_insights,
+        content_by_parts,
+        key_phrases,
     )
+    if feedback_result is None:
+        feedback_result = generate_feedback(
+            metrics_audio,
+            content_insights=content_insights,
+            transcript=transcript,
+            segment_insights=segment_insights,
+            content_by_parts=content_by_parts,
+            key_phrases=key_phrases,
+        )
     scores = {
         "pedagogy_score": feedback_result["pedagogy_score"],
         "engagement_score": feedback_result["engagement_score"],
@@ -712,7 +837,33 @@ def run_analysis(video_path: str, session_id: Optional[str] = None) -> dict:
     metrics_content["by_parts"] = content_by_parts
     metrics_content["segment_count"] = len(segment_insights)
     metrics_content["key_phrases"] = key_phrases
-    return build_session_output(
+
+    # Phase 4: semantic evaluation (LLM) for explainable, audit-safe feedback. Same input -> same output (temperature=0).
+    semantic_feedback = None
+    try:
+        from ai_evaluator import evaluate_teaching_semantics
+        eval_input = {
+            "transcript": transcript,
+            "segments": [{"start": s.get("start"), "end": s.get("end"), "text": (s.get("text") or "").strip()} for s in segments],
+            "metrics_audio": metrics_audio,
+            "metrics_content": {
+                "question_count": content_insights.get("question_count", 0),
+                "example_count": content_insights.get("example_count", 0),
+                "structure_score": content_insights.get("structure_score", 0),
+                "interaction_score": content_insights.get("interaction_score", 0),
+            },
+            "duration_minutes": duration_seconds / 60.0,
+        }
+        semantic_feedback = evaluate_teaching_semantics(eval_input)
+    except Exception:
+        semantic_feedback = {
+            "semantic_strengths": [],
+            "semantic_improvements": [],
+            "session_summary": "",
+            "reasoning_notes": "",
+        }
+
+    out = build_session_output(
         session_id=session_id,
         transcript_summary=transcript_summary,
         scores=scores,
@@ -722,3 +873,5 @@ def run_analysis(video_path: str, session_id: Optional[str] = None) -> dict:
         metrics_audio=metrics_audio,
         metrics_content=metrics_content,
     )
+    out["semantic_feedback"] = semantic_feedback
+    return out

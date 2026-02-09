@@ -262,6 +262,9 @@ export default function ManagementDashboard() {
                       <span className="text-sm font-semibold text-primary-600">{Number(row.overall_score).toFixed(1)}/5</span>
                     )}
                   </div>
+                  {row.semantic_feedback?.session_summary && (
+                    <p className="text-sm text-gray-600 mt-1 italic">{row.semantic_feedback.session_summary}</p>
+                  )}
                   {row.strengths?.length > 0 && (
                     <p className="text-sm text-gray-700 mt-1">Strengths: {row.strengths.slice(0, 2).join('; ')}</p>
                   )}

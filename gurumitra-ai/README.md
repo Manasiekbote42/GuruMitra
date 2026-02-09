@@ -49,6 +49,26 @@ Body (JSON): `{ "video_url": "https://example.com/classroom.mp4" }`
 
 Response shape: `pedagogy_score`, `engagement_score`, `delivery_score`, `curriculum_score`, `feedback`, `strengths`, `improvements`, `recommendations`, `metrics`.
 
+### Optional: Gemini API for feedback
+
+When **GEMINI_API_KEY** is set, the service uses Google’s Gemini API to generate feedback (strengths, improvements, recommendations, summary and scores) from the transcript and metrics. Otherwise it uses built-in rule-based feedback.
+
+1. Get an API key: [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Set in `.env` (or environment):
+   - `GEMINI_API_KEY=your_key`
+   - Optional: `GEMINI_MODEL=gemini-1.5-flash` (default) or `gemini-1.5-pro`, `gemini-2.0-flash`, etc.
+
+If the Gemini call fails or the key is missing, the analyzer falls back to rule-based feedback automatically.
+
+### Phase 4: Semantic evaluator (ai_evaluator.py)
+
+After each run, the pipeline calls `evaluate_teaching_semantics()` with transcript, segments, and metrics. The LLM (Gemini, temperature=0) returns **explainable, audit-safe** feedback:
+
+- `semantic_strengths` / `semantic_improvements`: each item has `point` and `evidence` (transcript or metric).
+- `session_summary`, `reasoning_notes`.
+
+Same video + same transcript → same semantic feedback. Output is merged into the session response and stored in `analysis_result.semantic_feedback`. No randomness; evidence must reference transcript or provided metrics.
+
 ## Integration
 
 The Node.js backend calls this service for each new upload (when no existing result exists for the same video hash). Results are stored in PostgreSQL; dashboards read only from the database.

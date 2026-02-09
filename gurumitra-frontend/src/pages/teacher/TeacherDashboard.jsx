@@ -76,12 +76,13 @@ export default function TeacherDashboard() {
         } else {
           setLatestScores(null);
         }
-        if (summary?.strengths || summary?.improvements || summary?.recommendations) {
+        if (summary?.strengths || summary?.improvements || summary?.recommendations || summary?.semantic_feedback) {
           setLatestFeedback({
             session_id: session?.session_id,
             strengths: summary.strengths || [],
             improvements: summary.improvements || [],
             recommendations: summary.recommendations || [],
+            semantic_feedback: summary.semantic_feedback || null,
             generated_at: session?.created_at,
           });
         } else if (session && session.status === 'completed') {
@@ -129,12 +130,13 @@ export default function TeacherDashboard() {
         } else {
           setLatestScores(null);
         }
-        if (summary?.strengths || summary?.improvements || summary?.recommendations) {
+        if (summary?.strengths || summary?.improvements || summary?.recommendations || summary?.semantic_feedback) {
           setLatestFeedback({
             session_id: session?.session_id,
             strengths: summary.strengths || [],
             improvements: summary.improvements || [],
             recommendations: summary.recommendations || [],
+            semantic_feedback: summary.semantic_feedback || null,
             generated_at: session?.created_at,
           });
         } else if (session && session.status === 'completed') {
@@ -326,6 +328,9 @@ export default function TeacherDashboard() {
             )}
             {isRealFeedback(latestFeedback) ? (
               <>
+                {latestFeedback.semantic_feedback?.session_summary && (
+                  <p className="text-sm text-gray-700 mb-2 italic">{latestFeedback.semantic_feedback.session_summary}</p>
+                )}
                 <p className="text-xs text-gray-500 mb-2">Strengths</p>
                 <ul className="list-disc list-inside text-sm text-gray-700 space-y-1 mb-3">
                   {(latestFeedback.strengths || []).slice(0, 2).map((i, k) => (

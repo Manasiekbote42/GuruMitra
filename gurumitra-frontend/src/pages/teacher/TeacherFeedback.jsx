@@ -94,32 +94,78 @@ export default function TeacherFeedback() {
           </div>
 
           {feedback && !feedback.status && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card title="Strengths">
-                <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
-                  {(feedback.strengths || []).map((item, i) => (
-                    <li key={i}>{item}</li>
-                  ))}
-                  {!(feedback.strengths?.length) && <li className="text-gray-500">None yet</li>}
-                </ul>
-              </Card>
-              <Card title="Improvements">
-                <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
-                  {(feedback.improvements || []).map((item, i) => (
-                    <li key={i}>{item}</li>
-                  ))}
-                  {!(feedback.improvements?.length) && <li className="text-gray-500">None yet</li>}
-                </ul>
-              </Card>
-              <Card title="Recommendations">
-                <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
-                  {(feedback.recommendations || []).map((item, i) => (
-                    <li key={i}>{item}</li>
-                  ))}
-                  {!(feedback.recommendations?.length) && <li className="text-gray-500">None yet</li>}
-                </ul>
-              </Card>
-            </div>
+            <>
+              {feedback.semantic_feedback && (feedback.semantic_feedback.session_summary || (feedback.semantic_feedback.semantic_strengths?.length) || (feedback.semantic_feedback.semantic_improvements?.length)) && (
+                <Card title="AI session evaluation">
+                  {feedback.semantic_feedback.session_summary && (
+                    <p className="text-sm text-gray-700 mb-3">{feedback.semantic_feedback.session_summary}</p>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Strengths (with evidence)</p>
+                      <ul className="space-y-2 text-sm text-gray-700">
+                        {(feedback.semantic_feedback.semantic_strengths || []).map((item, i) => (
+                          <li key={i} className="flex flex-col">
+                            <span>{typeof item === 'object' ? item.point : item}</span>
+                            {(typeof item === 'object' && item.evidence) && (
+                              <span className="text-xs text-gray-500 mt-0.5" title={item.evidence}>
+                                Evidence: {item.evidence}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                        {!(feedback.semantic_feedback.semantic_strengths?.length) && <li className="text-gray-500">None</li>}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Areas for improvement (with evidence)</p>
+                      <ul className="space-y-2 text-sm text-gray-700">
+                        {(feedback.semantic_feedback.semantic_improvements || []).map((item, i) => (
+                          <li key={i} className="flex flex-col">
+                            <span>{typeof item === 'object' ? item.point : item}</span>
+                            {(typeof item === 'object' && item.evidence) && (
+                              <span className="text-xs text-gray-500 mt-0.5" title={item.evidence}>
+                                Evidence: {item.evidence}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                        {!(feedback.semantic_feedback.semantic_improvements?.length) && <li className="text-gray-500">None</li>}
+                      </ul>
+                    </div>
+                  </div>
+                  {feedback.semantic_feedback.reasoning_notes && (
+                    <p className="text-xs text-gray-600 border-t pt-2 mt-2">Pedagogical notes: {feedback.semantic_feedback.reasoning_notes}</p>
+                  )}
+                </Card>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <Card title="Strengths">
+                  <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
+                    {(feedback.strengths || []).map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                    {!(feedback.strengths?.length) && <li className="text-gray-500">None yet</li>}
+                  </ul>
+                </Card>
+                <Card title="Improvements">
+                  <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
+                    {(feedback.improvements || []).map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                    {!(feedback.improvements?.length) && <li className="text-gray-500">None yet</li>}
+                  </ul>
+                </Card>
+                <Card title="Recommendations">
+                  <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
+                    {(feedback.recommendations || []).map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                    {!(feedback.recommendations?.length) && <li className="text-gray-500">None yet</li>}
+                  </ul>
+                </Card>
+              </div>
+            </>
           )}
         </>
       )}

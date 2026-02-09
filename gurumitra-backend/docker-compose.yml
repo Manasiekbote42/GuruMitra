@@ -1,0 +1,17 @@
+# Local PostgreSQL for development when Neon is unavailable.
+# Run: docker-compose up -d
+# Then in .env set: DATABASE_URL=postgresql://postgres:postgres@localhost:5432/gurumitra
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gurumitra
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

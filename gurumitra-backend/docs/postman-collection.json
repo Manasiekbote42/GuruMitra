@@ -1,0 +1,67 @@
+{
+  "info": { "name": "GuruMitra Backend", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "teacherToken", "value": "" },
+    { "key": "sessionId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+    },
+    {
+      "name": "Auth Login (Teacher)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"teacher@gurumitra.demo\",\n  \"password\": \"demo123\"\n}" },
+        "url": "{{baseUrl}}/api/auth/login"
+      }
+    },
+    {
+      "name": "Teacher - Upload Session",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{teacherToken}}" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"video_url\": \"https://example.com/class-video.mp4\"\n}" },
+        "url": "{{baseUrl}}/api/teacher/sessions"
+      }
+    },
+    {
+      "name": "Teacher - List Sessions",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+        "url": "{{baseUrl}}/api/teacher/sessions"
+      }
+    },
+    {
+      "name": "Teacher - Get Feedback",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+        "url": "{{baseUrl}}/api/teacher/sessions/{{sessionId}}/feedback"
+      }
+    },
+    {
+      "name": "Teacher - Get Scores",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+        "url": "{{baseUrl}}/api/teacher/sessions/{{sessionId}}/scores"
+      }
+    },
+    {
+      "name": "Teacher - Get Recommendations",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{teacherToken}}" }],
+        "url": "{{baseUrl}}/api/teacher/recommendations"
+      }
+    }
+  ]
+}

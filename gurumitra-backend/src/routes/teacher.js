@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { query } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { processSessionAsync } from '../services/aiProcessor.js';
+import { audit } from '../services/auditLog.js';
 import { computeContentHash, computeFileHash } from '../utils/contentHash.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +35,7 @@ router.post('/sessions', async (req, res) => {
   try {
     const { video_url, duration_seconds, speech_ratio, audio_energy, video_title, subject, grade_class, date_of_recording, department } = req.body;
     const teacherId = req.user.id;
+    const schoolId = req.user.school_id || (await query('SELECT school_id FROM users WHERE id = $1', [teacherId])).rows[0]?.school_id || null;
 
     // Update teacher's department in users table when provided (so management dashboard shows it)
     if (department !== undefined && department !== null && String(department).trim() !== '') {
@@ -54,13 +56,14 @@ router.post('/sessions', async (req, res) => {
     const contentHash = computeContentHash(video_url || '', metadata);
 
     const result = await query(
-      `INSERT INTO classroom_sessions (teacher_id, video_url, status, upload_metadata, content_hash)
-       VALUES ($1, $2, 'processing', $3, $4)
+      `INSERT INTO classroom_sessions (teacher_id, school_id, video_url, status, upload_metadata, content_hash)
+       VALUES ($1, $2, $3, 'processing', $4, $5)
        RETURNING id, teacher_id, video_url, uploaded_at, status, created_at`,
-      [teacherId, video_url || null, metadataJson, contentHash]
+      [teacherId, schoolId, video_url || null, metadataJson, contentHash]
     );
     const session = result.rows[0];
 
+    audit(teacherId, 'teacher', 'video_upload', 'session', session.id, schoolId);
     processSessionAsync(session.id, teacherId);
 
     res.status(201).json(session);
@@ -104,14 +107,16 @@ router.post('/sessions/upload', upload.single('video'), async (req, res) => {
     const filePath = path.join(UPLOADS_DIR, `${sessionId}${ext}`);
     fs.writeFileSync(filePath, req.file.buffer);
 
+    const schoolId = req.user.school_id || (await query('SELECT school_id FROM users WHERE id = $1', [teacherId])).rows[0]?.school_id || null;
     const result = await query(
-      `INSERT INTO classroom_sessions (id, teacher_id, video_url, status, upload_metadata, content_hash)
-       VALUES ($1, $2, $3, 'processing', $4, $5)
+      `INSERT INTO classroom_sessions (id, teacher_id, school_id, video_url, status, upload_metadata, content_hash)
+       VALUES ($1, $2, $3, $4, 'processing', $5, $6)
        RETURNING id, teacher_id, video_url, uploaded_at, status, created_at`,
-      [sessionId, teacherId, videoUrl, metadataJson, contentHash]
+      [sessionId, teacherId, schoolId, videoUrl, metadataJson, contentHash]
     );
     const session = result.rows[0];
 
+    audit(teacherId, 'teacher', 'video_upload', 'session', sessionId, schoolId);
     processSessionAsync(sessionId, teacherId);
 
     res.status(201).json(session);
@@ -212,6 +217,8 @@ router.get('/sessions/:sessionId/feedback', async (req, res) => {
     }
     const analysisResult = sessionRow.rows[0]?.analysis_result || null;
     const semanticFeedback = analysisResult && typeof analysisResult.semantic_feedback === 'object' ? analysisResult.semantic_feedback : null;
+
+    audit(teacherId, 'teacher', 'feedback_view', 'session', sessionId, req.user.school_id);
 
     res.json({
       session_id: row.session_id,

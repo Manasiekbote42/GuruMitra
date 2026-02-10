@@ -18,16 +18,16 @@ if _env_path.is_file():
     except Exception:
         pass
 
+# Max transcript length sent to LLM so the full explanation/teaching content is analyzed (not just opening)
+TRANSCRIPT_MAX_CHARS = 20000
+
 SYSTEM_PROMPT = """You are an expert classroom evaluator for schools.
-Evaluate teaching quality strictly from the provided transcript and metrics.
-Do NOT assume student emotions or learning outcomes.
-Do NOT modify numeric scores.
-Every strength or improvement MUST reference:
-- a transcript phrase OR
-- a provided metric.
+You must analyze the FULL teaching session transcript—especially the explanation and content delivery—before writing any feedback.
+Evaluate teaching quality strictly from the provided transcript and metrics. Do NOT assume student emotions or learning outcomes.
+Every strength or improvement MUST reference a specific phrase from the transcript or a provided metric. No generic praise or advice.
 Your output must be professional, neutral, and audit-safe."""
 
-USER_PROMPT_TEMPLATE = """Based on the following session data, provide structured feedback.
+USER_PROMPT_TEMPLATE = """The transcript below is the full (or substantial) teaching session. Analyze the explanation and how the teacher presents content before writing feedback.
 
 Session metrics:
 - Duration: {duration_minutes:.2f} minutes
@@ -38,16 +38,16 @@ Session metrics:
 - Structure score (0-5): {structure_score}
 - Interaction score (0-5): {interaction_score}
 
-Transcript (excerpt, max 4000 chars):
+Full session transcript (analyze the explanation and teaching delivery; cite specific phrases in evidence):
 ---
 {transcript_excerpt}
 ---
 
 Provide your response as a single JSON object only (no markdown, no code fence). Use exactly these keys:
-- "semantic_strengths": array of objects, each with "point" (string) and "evidence" (string). Max 5 items. Evidence must quote transcript or cite a metric.
-- "semantic_improvements": array of objects, each with "point" (string) and "evidence" (string). Max 5 items. Evidence must quote transcript or cite a metric.
-- "session_summary": string, 2-3 lines summarizing the session.
-- "reasoning_notes": string, short pedagogical reasoning using transcript evidence.
+- "semantic_strengths": array of objects, each with "point" (string) and "evidence" (string). Max 5 items. Evidence must quote a specific phrase from the transcript or cite a metric.
+- "semantic_improvements": array of objects, each with "point" (string) and "evidence" (string). Max 5 items. Evidence must quote a specific phrase from the transcript or cite a metric.
+- "session_summary": string, 2-3 lines summarizing what was taught and how (based on the transcript).
+- "reasoning_notes": string, short pedagogical reasoning using specific transcript evidence.
 
 Output only the JSON object, nothing else."""
 
@@ -138,7 +138,7 @@ def evaluate_teaching_semantics(input_data: dict) -> dict:
     if duration_minutes <= 0:
         duration_minutes = max(0.1, float(metrics_audio.get("duration_seconds", 0)) / 60.0)
 
-    transcript_excerpt = (transcript or "(no transcript)")[:4000]
+    transcript_excerpt = (transcript or "(no transcript)")[:TRANSCRIPT_MAX_CHARS]
     speech_ratio = float(metrics_audio.get("speech_ratio", 0.5))
     audio_energy = float(metrics_audio.get("audio_energy", 0.5))
     question_count = int(metrics_content.get("question_count", 0))

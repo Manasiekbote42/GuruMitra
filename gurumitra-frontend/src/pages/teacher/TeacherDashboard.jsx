@@ -8,6 +8,8 @@ import {
   teacherGetRecommendations,
   teacherGetFeedback,
   teacherGetScores,
+  getMe,
+  getTrainingRecommendations,
 } from '../../services/api';
 import { usePollSessions } from '../../hooks/usePollSessions';
 import {
@@ -45,6 +47,9 @@ export default function TeacherDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showSessionCreated, setShowSessionCreated] = useState(!!location.state?.sessionCreated);
+  const [trainingRecs, setTrainingRecs] = useState({ message: '', weak_areas: [], recommendations: [] });
+  const [trainingRecsLoading, setTrainingRecsLoading] = useState(true);
+  const [videoModalModule, setVideoModalModule] = useState(null);
 
   const fetchRecommendations = useCallback(() => {
     teacherGetRecommendations().then((r) => setRecommendations(r || { modules: [] })).catch(() => setRecommendations({ modules: [] }));
@@ -161,12 +166,26 @@ export default function TeacherDashboard() {
     load();
   }, []);
 
+  const fetchTrainingRecs = useCallback(() => {
+    setTrainingRecsLoading(true);
+    getMe()
+      .then((me) => (me?.id ? getTrainingRecommendations(me.id) : { message: '', weak_areas: [], recommendations: [] }))
+      .then((data) => setTrainingRecs(data || { message: '', weak_areas: [], recommendations: [] }))
+      .catch(() => setTrainingRecs({ message: '', weak_areas: [], recommendations: [] }))
+      .finally(() => setTrainingRecsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchTrainingRecs();
+  }, [fetchTrainingRecs]);
+
   usePollSessions(isProcessingOrPending(sessions), (s) => {
     setSessions(s || []);
     const hadProcessing = (sessions || []).some((x) => x.status === 'processing' || x.status === 'pending');
     if (hadProcessing) {
       fetchLatestFromApi();
       fetchRecommendations();
+      fetchTrainingRecs();
     }
   });
 
@@ -281,6 +300,116 @@ export default function TeacherDashboard() {
               </ResponsiveContainer>
             </div>
           </Card>
+        )}
+      </section>
+
+      {/* Recommended Training Modules (Phase 4) */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Recommended Training Modules</h2>
+        {trainingRecsLoading ? (
+          <div className="animate-pulse rounded-xl border border-gray-200 p-6">
+            <div className="h-4 bg-gray-100 rounded w-3/4 mb-4" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {[1, 2].map((i) => (
+                <div key={i} className="h-40 bg-gray-100 rounded-lg" />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <Card>
+            <p className="text-sm text-gray-700 mb-4">
+              {trainingRecs.message || 'Complete a teaching session to get personalized module recommendations based on your analysis.'}
+            </p>
+            {trainingRecs.weak_areas?.length > 0 && (
+              <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-100">
+                <p className="text-xs font-medium text-amber-800 mb-2">Focus areas from your recent session:</p>
+                <ul className="list-disc list-inside text-sm text-amber-900 space-y-1">
+                  {trainingRecs.weak_areas.map((w, i) => (
+                    <li key={i}>{w.label}: {w.reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(trainingRecs.recommendations || []).map(({ module: m, reason }) => {
+                const embedMatch = m?.video_url?.match(/embed\/([^/?]+)/);
+                const thumbUrl = embedMatch
+                  ? `https://img.youtube.com/vi/${embedMatch[1]}/mqdefault.jpg`
+                  : null;
+                return (
+                  <div
+                    key={m?.id}
+                    className="rounded-xl border border-gray-200 overflow-hidden bg-gray-50/50 hover:border-primary-200 transition-colors"
+                  >
+                    <div className="aspect-video bg-gray-200 relative">
+                      {thumbUrl ? (
+                        <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">Video</div>
+                      )}
+                    </div>
+                    <div className="p-3">
+                      <h4 className="font-semibold text-gray-800 text-sm">{m?.title}</h4>
+                      <p className="text-xs text-primary-600 mt-0.5">
+                        {(trainingRecs.weak_areas || []).find((w) => w.area === m?.improvement_area)?.label || m?.improvement_area?.replace(/_/g, ' ')}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{m?.duration_minutes} min · {m?.difficulty_level}</p>
+                      <p className="text-xs text-gray-600 mt-2 line-clamp-2">{reason}</p>
+                      <button
+                        type="button"
+                        onClick={() => setVideoModalModule(m)}
+                        className="mt-3 w-full py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700"
+                      >
+                        Watch
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {!(trainingRecs.recommendations?.length) && !trainingRecsLoading && (
+              <p className="text-sm text-gray-500 mt-4">No specific modules recommended right now. Your recent session scores look good, or upload and complete a session to get suggestions.</p>
+            )}
+            <button
+              type="button"
+              onClick={() => navigate('/teacher/training')}
+              className="mt-4 text-sm text-primary-600 font-medium hover:text-primary-700"
+            >
+              View all training →
+            </button>
+          </Card>
+        )}
+        {videoModalModule && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Video player"
+            onClick={() => setVideoModalModule(null)}
+          >
+            <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="flex justify-between items-center p-3 border-b border-gray-200">
+                <h3 className="font-semibold text-gray-800">{videoModalModule.title}</h3>
+                <button
+                  type="button"
+                  onClick={() => setVideoModalModule(null)}
+                  className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                  aria-label="Close"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="aspect-video bg-black">
+                <iframe
+                  title={videoModalModule.title}
+                  src={videoModalModule.video_url}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            </div>
+          </div>
         )}
       </section>
 

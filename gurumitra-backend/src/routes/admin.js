@@ -2,14 +2,15 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { query } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
+import { audit } from '../services/auditLog.js';
 
 const router = express.Router();
 router.use(authenticate, requireRole('admin'));
 
-// Add user
+// Add user (optional school_id for teacher/management)
 router.post('/users', async (req, res) => {
   try {
-    const { name, email, password, role, department } = req.body;
+    const { name, email, password, role, department, school_id } = req.body;
     if (!name || !email || !role) {
       return res.status(400).json({ error: 'name, email, and role are required' });
     }
@@ -20,18 +21,14 @@ router.post('/users', async (req, res) => {
 
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
     const result = await query(
-      `INSERT INTO users (name, email, password_hash, role, department)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, email, role, department, created_at`,
-      [name.trim(), email.trim().toLowerCase(), passwordHash, role, department || null]
+      `INSERT INTO users (name, email, password_hash, role, department, school_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, name, email, role, department, school_id, created_at`,
+      [name.trim(), email.trim().toLowerCase(), passwordHash, role, department || null, school_id || null]
     );
     const user = result.rows[0];
 
-    await query(
-      `INSERT INTO system_activity (user_id, action, details)
-       VALUES ($1, 'user_created', $2)`,
-      [req.user.id, JSON.stringify({ target_email: user.email, role: user.role })]
-    );
+    audit(req.user.id, 'admin', 'user_created', 'user', user.id, user.school_id);
 
     res.status(201).json(user);
   } catch (err) {
@@ -43,11 +40,11 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// Update user (name, email, department; optional password)
+// Update user (name, email, department, school_id; optional password)
 router.put('/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    const { name, email, department, password } = req.body;
+    const { name, email, department, school_id, password } = req.body;
     const updates = [];
     const values = [];
     let pos = 1;
@@ -63,26 +60,27 @@ router.put('/users/:userId', async (req, res) => {
       updates.push(`department = $${pos++}`);
       values.push(department === '' ? null : department);
     }
+    if (school_id !== undefined) {
+      updates.push(`school_id = $${pos++}`);
+      values.push(school_id === '' ? null : school_id);
+    }
     if (password !== undefined && password !== '') {
       updates.push(`password_hash = $${pos++}`);
       values.push(await bcrypt.hash(password, 10));
     }
     if (updates.length === 0) {
-      return res.status(400).json({ error: 'Provide at least one field: name, email, department, or password' });
+      return res.status(400).json({ error: 'Provide at least one field: name, email, department, school_id, or password' });
     }
     updates.push(`updated_at = NOW()`);
     values.push(userId);
     const result = await query(
-      `UPDATE users SET ${updates.join(', ')} WHERE id = $${pos} RETURNING id, name, email, role, department, updated_at`,
+      `UPDATE users SET ${updates.join(', ')} WHERE id = $${pos} RETURNING id, name, email, role, department, school_id, updated_at`,
       values
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    await query(
-      `INSERT INTO system_activity (user_id, action, details) VALUES ($1, 'user_updated', $2)`,
-      [req.user.id, JSON.stringify({ target_id: userId })]
-    );
+    audit(req.user.id, 'admin', 'user_updated', 'user', userId, null);
     res.json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Email already in use' });
@@ -105,10 +103,7 @@ router.delete('/users/:userId', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    await query(
-      `INSERT INTO system_activity (user_id, action, details) VALUES ($1, 'user_deleted', $2)`,
-      [req.user.id, JSON.stringify({ deleted_id: userId, deleted_email: result.rows[0].email })]
-    );
+    audit(req.user.id, 'admin', 'user_deleted', 'user', userId, null);
     res.json({ success: true, deleted: result.rows[0] });
   } catch (err) {
     console.error(err);
@@ -135,12 +130,7 @@ router.patch('/users/:userId/role', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    await query(
-      `INSERT INTO system_activity (user_id, action, details)
-       VALUES ($1, 'role_updated', $2)`,
-      [req.user.id, JSON.stringify({ target_id: userId, new_role: role })]
-    );
-
+    audit(req.user.id, 'admin', 'role_updated', 'user', userId, null);
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -148,25 +138,59 @@ router.patch('/users/:userId/role', async (req, res) => {
   }
 });
 
-// List users (optional: filter by role)
+// List users (optional: filter by role). Returns school_id for assignment.
 router.get('/users', async (req, res) => {
   try {
     const { role } = req.query;
     let result;
     if (role) {
       result = await query(
-        `SELECT id, name, email, role, department, created_at FROM users WHERE role = $1 ORDER BY name`,
+        `SELECT id, name, email, role, department, school_id, created_at FROM users WHERE role = $1 ORDER BY name`,
         [role]
       );
     } else {
       result = await query(
-        `SELECT id, name, email, role, department, created_at FROM users ORDER BY name`
+        `SELECT id, name, email, role, department, school_id, created_at FROM users ORDER BY name`
       );
     }
     res.json(result.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Phase 5: List schools (for assigning users to schools)
+router.get('/schools', async (req, res) => {
+  try {
+    const result = await query('SELECT id, name, created_at FROM schools ORDER BY name');
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch schools' });
+  }
+});
+
+// Phase 5: Audit logs (admin only). Mandatory for production compliance.
+router.get('/audit-logs', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const action = (req.query.action || '').trim() || null;
+    const result = await query(
+      `SELECT a.id, a.user_id, a.role, a.action, a.entity_type, a.entity_id, a.school_id, a.created_at,
+              u.email AS actor_email, u.name AS actor_name
+       FROM audit_logs a
+       LEFT JOIN users u ON u.id = a.user_id
+       ${action ? 'WHERE a.action = $3' : ''}
+       ORDER BY a.created_at DESC
+       LIMIT $1 OFFSET $2`,
+      action ? [limit, offset, action] : [limit, offset]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch audit logs' });
   }
 });
 

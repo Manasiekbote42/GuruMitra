@@ -489,10 +489,11 @@ def _generate_feedback_with_gemini(
     q_count = (content_insights or {}).get("question_count", 0)
     ex_count = (content_insights or {}).get("example_count", 0)
     parts = content_by_parts or {}
-    transcript_excerpt = (transcript or "").strip()[:3000]
+    # Send full transcript (up to 18k chars) so the explanation/teaching content is fully analyzed
+    transcript_for_llm = (transcript or "").strip()[:18000]
     phrases = key_phrases or []
 
-    prompt = f"""You are an expert teaching coach. Based on the following classroom session data, produce feedback in the exact JSON format below. No other text.
+    prompt = f"""You are an expert teaching coach. The transcript below is from a full classroom session. You MUST analyze the actual explanation and teaching content in the transcript before writing feedback. Do not give generic advice—every strength, improvement, and recommendation must be specific to what the teacher said or did in this transcript. Produce feedback in the exact JSON format below. No other text.
 
 Session data:
 - Duration: {duration_min:.1f} minutes
@@ -505,8 +506,10 @@ Session data:
 - Middle (60%): questions={parts.get('middle', {}).get('question_count', 0)}, examples={parts.get('middle', {}).get('example_count', 0)}
 - Closing (last 20%): questions={parts.get('closing', {}).get('question_count', 0)}, examples={parts.get('closing', {}).get('example_count', 0)}
 
-Transcript excerpt:
-{transcript_excerpt or "(no transcript)"}
+Full session transcript (analyze the explanation and teaching delivery; cite specific phrases in your feedback):
+---
+{transcript_for_llm or "(no transcript)"}
+---
 
 Respond with a single JSON object only (no markdown, no code block), with these exact keys:
 - pedagogy_score: number 1-5 (teaching clarity, structure, explanation)
@@ -524,6 +527,7 @@ Respond with a single JSON object only (no markdown, no code block), with these 
         response = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
+            config={"temperature": 0.0},
         )
         text = (response.text or "").strip()
         if not text:
@@ -784,11 +788,19 @@ def run_analysis(video_path: str, session_id: Optional[str] = None) -> dict:
     transcript = (trans.get("transcript") or "").strip()
     segments = trans.get("segments") or []
 
-    if not transcript:
+    # Require sufficient transcript so feedback is from actual analysis, not generic templates
+    MIN_TRANSCRIPT_WORDS = 25
+    word_count = len(transcript.split()) if transcript else 0
+    if not transcript or word_count < MIN_TRANSCRIPT_WORDS:
+        warning = (
+            "Empty transcript. No scores generated."
+            if not transcript
+            else f"Insufficient transcript ({word_count} words). Video must be fully transcribed for analysis. Please use a clearer recording or longer session (minimum ~{MIN_TRANSCRIPT_WORDS} words)."
+        )
         return {
-            "warning": "Empty transcript. No scores generated.",
+            "warning": warning,
             "session_id": session_id,
-            "transcript_summary": "",
+            "transcript_summary": transcript[:200] + ("..." if len(transcript) > 200 else "") if transcript else "",
             "scores": None,
             "pedagogy_score": None,
             "engagement_score": None,

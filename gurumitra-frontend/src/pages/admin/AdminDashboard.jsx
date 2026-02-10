@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Card from '../../components/Card';
 import Table from '../../components/Table';
-import { adminGetUsers, adminGetActivity, adminGetSystemStatus } from '../../services/api';
+import { adminGetUsers, adminGetActivity, adminGetSystemStatus, adminGetAuditLogs } from '../../services/api';
 
 const STATUS_COLORS = { pending: 'bg-amber-100 text-amber-800', processing: 'bg-blue-100 text-blue-800', completed: 'bg-green-100 text-green-800', failed: 'bg-red-100 text-red-800' };
 
@@ -10,6 +10,7 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState([]);
   const [activity, setActivity] = useState([]);
   const [systemStatus, setSystemStatus] = useState(null);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -25,10 +26,12 @@ export default function AdminDashboard() {
         setError(err.response?.data?.error || 'Failed to load system status');
         return null;
       }),
-    ]).then(([u, a, status]) => {
+      adminGetAuditLogs(100, 0).catch(() => []),
+    ]).then(([u, a, status, logs]) => {
       setUsers(u);
       setActivity(a);
       setSystemStatus(status);
+      setAuditLogs(Array.isArray(logs) ? logs : []);
       setLastUpdated(new Date());
       setLoading(false);
       setRefreshing(false);
@@ -185,6 +188,22 @@ export default function AdminDashboard() {
         </Card>
         <Card title="System Activity (Recent)" className="mt-6">
           <Table columns={activityColumns} data={activity} keyField="id" emptyMessage="No activity" />
+        </Card>
+        <Card title="Audit logs (Phase 5)" className="mt-6">
+          <p className="text-sm text-gray-600 mb-4">Video uploads, feedback views, logins, admin actions. Read-only.</p>
+          <Table
+            columns={[
+              { key: 'action', label: 'Action' },
+              { key: 'role', label: 'Role' },
+              { key: 'actor_email', label: 'Actor', render: (v) => v || '—' },
+              { key: 'entity_type', label: 'Entity', render: (v) => v || '—' },
+              { key: 'entity_id', label: 'Entity ID', render: (v) => (v ? String(v).slice(0, 8) + '…' : '—') },
+              { key: 'created_at', label: 'Time', render: (v) => (v ? new Date(v).toLocaleString() : '—') },
+            ]}
+            data={auditLogs}
+            keyField="id"
+            emptyMessage="No audit logs yet"
+          />
         </Card>
       </section>
     </div>

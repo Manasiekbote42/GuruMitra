@@ -83,6 +83,10 @@ export const teacherGetScores = (sessionId) =>
 export const teacherGetRecommendations = () =>
   api.get('/api/teacher/recommendations').then((r) => r.data);
 
+/** Phase 4: Rule-based training recommendations from latest session analysis (question_count, example_count, structure_score, interaction_score). */
+export const getTrainingRecommendations = (teacherId) =>
+  api.get(`/api/training/recommendations/${teacherId}`).then((r) => r.data);
+
 export const managementGetRecentSessions = (limit = 20) =>
   api.get('/api/management/recent-sessions', { params: { limit } }).then((r) => r.data);
 
@@ -127,5 +131,12 @@ export const adminGetRecentSessions = (limit = 30) =>
 
 /** System status: total uploads, processing/completed/failed, analyzer last run, recent uploads. */
 export const adminGetSystemStatus = () => api.get('/api/admin/system/status').then((r) => r.data);
+
+/** Phase 5: Audit logs (admin only). */
+export const adminGetAuditLogs = (limit = 100, offset = 0, action = '') =>
+  api.get('/api/admin/audit-logs', { params: { limit, offset, action: action || undefined } }).then((r) => r.data);
+
+/** Phase 5: List schools for assignment. */
+export const adminGetSchools = () => api.get('/api/admin/schools').then((r) => r.data);
 
 export default api;

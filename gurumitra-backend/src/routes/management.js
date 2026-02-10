@@ -1,22 +1,33 @@
 import express from 'express';
 import { query } from '../config/db.js';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import { authenticate, requireRole, requireSchoolForManagement } from '../middleware/auth.js';
 
 const router = express.Router();
-router.use(authenticate, requireRole('management', 'admin'));
+router.use(authenticate, requireRole('management', 'admin'), requireSchoolForManagement);
 
-// Recent sessions (for Management dashboard - shows when teachers upload)
+// Recent sessions (for Management dashboard). Management: own school only; Admin: all.
 router.get('/recent-sessions', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
-    const result = await query(
-      `SELECT s.id, s.teacher_id, s.video_url, s.status, s.created_at, u.name AS teacher_name, u.department
-       FROM classroom_sessions s
-       JOIN users u ON u.id = s.teacher_id
-       ORDER BY s.created_at DESC
-       LIMIT $1`,
-      [limit]
-    );
+    const isAdmin = req.user.role === 'admin';
+    const result = isAdmin
+      ? await query(
+          `SELECT s.id, s.teacher_id, s.video_url, s.status, s.created_at, u.name AS teacher_name, u.department
+           FROM classroom_sessions s
+           JOIN users u ON u.id = s.teacher_id
+           ORDER BY s.created_at DESC
+           LIMIT $1`,
+          [limit]
+        )
+      : await query(
+          `SELECT s.id, s.teacher_id, s.video_url, s.status, s.created_at, u.name AS teacher_name, u.department
+           FROM classroom_sessions s
+           JOIN users u ON u.id = s.teacher_id
+           WHERE s.school_id = $1
+           ORDER BY s.created_at DESC
+           LIMIT $2`,
+          [req.user.school_id, limit]
+        );
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -24,13 +35,16 @@ router.get('/recent-sessions', async (req, res) => {
   }
 });
 
-// Get all teachers (no upload permission; read-only from DB)
+// Get all teachers. Management: own school only; Admin: all.
 router.get('/teachers', async (req, res) => {
   try {
-    const result = await query(
-      `SELECT id, name, email, role, department, created_at
-       FROM users WHERE role = 'teacher' ORDER BY name`
-    );
+    const isAdmin = req.user.role === 'admin';
+    const result = isAdmin
+      ? await query(`SELECT id, name, email, role, department, school_id, created_at FROM users WHERE role = 'teacher' ORDER BY name`)
+      : await query(
+          `SELECT id, name, email, role, department, school_id, created_at FROM users WHERE role = 'teacher' AND school_id = $1 ORDER BY name`,
+          [req.user.school_id]
+        );
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -38,13 +52,15 @@ router.get('/teachers', async (req, res) => {
   }
 });
 
-// Teacher-wise summary: average scores, session count, growth trend (last N sessions), low-average flag. From stored session data only.
+// Teacher-wise summary. Management: own school only; Admin: all.
 const LOW_AVERAGE_THRESHOLD = 3.0;
 router.get('/teachers/summary', async (req, res) => {
   try {
     const lastN = Math.min(parseInt(req.query.last_sessions, 10) || 10, 50);
+    const isAdmin = req.user.role === 'admin';
     const result = await query(
-      `SELECT u.id AS teacher_id, u.name AS teacher_name, u.department,
+      isAdmin
+        ? `SELECT u.id AS teacher_id, u.name AS teacher_name, u.department,
              COUNT(s.id) FILTER (WHERE s.status = 'completed') AS completed_count,
              COUNT(s.id) AS total_sessions,
              ROUND(AVG(sc.overall_score)::numeric, 2) AS avg_overall_score,
@@ -57,6 +73,20 @@ router.get('/teachers/summary', async (req, res) => {
        WHERE u.role = 'teacher'
        GROUP BY u.id, u.name, u.department
        ORDER BY u.name`
+        : `SELECT u.id AS teacher_id, u.name AS teacher_name, u.department,
+             COUNT(s.id) FILTER (WHERE s.status = 'completed') AS completed_count,
+             COUNT(s.id) AS total_sessions,
+             ROUND(AVG(sc.overall_score)::numeric, 2) AS avg_overall_score,
+             ROUND(AVG(sc.clarity_score)::numeric, 2) AS avg_clarity,
+             ROUND(AVG(sc.engagement_score)::numeric, 2) AS avg_engagement,
+             ROUND(AVG(sc.interaction_score)::numeric, 2) AS avg_interaction
+       FROM users u
+       LEFT JOIN classroom_sessions s ON s.teacher_id = u.id
+       LEFT JOIN scores sc ON sc.session_id = s.id AND s.status = 'completed'
+       WHERE u.role = 'teacher' AND u.school_id = $1
+       GROUP BY u.id, u.name, u.department
+       ORDER BY u.name`,
+      isAdmin ? [] : [req.user.school_id]
     );
     const withTrend = await Promise.all(
       result.rows.map(async (r) => {
@@ -98,11 +128,13 @@ router.get('/teachers/summary', async (req, res) => {
   }
 });
 
-// Latest AI feedback per teacher (for management dashboard)
+// Latest AI feedback per teacher. Management: own school only; Admin: all.
 router.get('/teachers/feedback-summary', async (req, res) => {
   try {
-    const result = await query(`
-      SELECT u.id AS teacher_id, u.name AS teacher_name, u.department,
+    const isAdmin = req.user.role === 'admin';
+    const result = await query(
+      isAdmin
+        ? `SELECT u.id AS teacher_id, u.name AS teacher_name, u.department,
              s.id AS session_id, s.status AS session_status, s.created_at AS session_at, s.analysis_result,
              f.strengths, f.improvements, f.recommendations,
              sc.overall_score, sc.clarity_score, sc.engagement_score, sc.interaction_score
@@ -116,8 +148,24 @@ router.get('/teachers/feedback-summary', async (req, res) => {
       LEFT JOIN feedback f ON f.session_id = s.id
       LEFT JOIN scores sc ON sc.session_id = s.id
       WHERE u.role = 'teacher'
-      ORDER BY u.name
-    `);
+      ORDER BY u.name`
+        : `SELECT u.id AS teacher_id, u.name AS teacher_name, u.department,
+             s.id AS session_id, s.status AS session_status, s.created_at AS session_at, s.analysis_result,
+             f.strengths, f.improvements, f.recommendations,
+             sc.overall_score, sc.clarity_score, sc.engagement_score, sc.interaction_score
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT cs.id, cs.status, cs.created_at, cs.analysis_result
+        FROM classroom_sessions cs
+        WHERE cs.teacher_id = u.id AND cs.status = 'completed'
+        ORDER BY cs.created_at DESC LIMIT 1
+      ) s ON true
+      LEFT JOIN feedback f ON f.session_id = s.id
+      LEFT JOIN scores sc ON sc.session_id = s.id
+      WHERE u.role = 'teacher' AND u.school_id = $1
+      ORDER BY u.name`,
+      isAdmin ? [] : [req.user.school_id]
+    );
     const list = result.rows.map((r) => ({
       teacher_id: r.teacher_id,
       teacher_name: r.teacher_name,
@@ -141,11 +189,13 @@ router.get('/teachers/feedback-summary', async (req, res) => {
   }
 });
 
-// Department-wise average scores: one row per department, including teachers with no department (Unassigned). All teachers counted.
+// Department-wise average scores. Management: own school only; Admin: all.
 router.get('/scores/department', async (req, res) => {
   try {
-    const result = await query(`
-      SELECT COALESCE(NULLIF(TRIM(u.department), ''), 'Unassigned') AS department,
+    const isAdmin = req.user.role === 'admin';
+    const result = await query(
+      isAdmin
+        ? `SELECT COALESCE(NULLIF(TRIM(u.department), ''), 'Unassigned') AS department,
              COUNT(DISTINCT u.id) AS teacher_count,
              COUNT(DISTINCT s.id) AS session_count,
              ROUND(AVG(sc.overall_score)::numeric, 2) AS avg_overall_score,
@@ -157,8 +207,22 @@ router.get('/scores/department', async (req, res) => {
       LEFT JOIN scores sc ON sc.session_id = s.id
       WHERE u.role = 'teacher'
       GROUP BY COALESCE(NULLIF(TRIM(u.department), ''), 'Unassigned')
-      ORDER BY department
-    `);
+      ORDER BY department`
+        : `SELECT COALESCE(NULLIF(TRIM(u.department), ''), 'Unassigned') AS department,
+             COUNT(DISTINCT u.id) AS teacher_count,
+             COUNT(DISTINCT s.id) AS session_count,
+             ROUND(AVG(sc.overall_score)::numeric, 2) AS avg_overall_score,
+             ROUND(AVG(sc.clarity_score)::numeric, 2) AS avg_clarity,
+             ROUND(AVG(sc.engagement_score)::numeric, 2) AS avg_engagement,
+             ROUND(AVG(sc.interaction_score)::numeric, 2) AS avg_interaction
+      FROM users u
+      LEFT JOIN classroom_sessions s ON s.teacher_id = u.id AND s.status = 'completed'
+      LEFT JOIN scores sc ON sc.session_id = s.id
+      WHERE u.role = 'teacher' AND u.school_id = $1
+      GROUP BY COALESCE(NULLIF(TRIM(u.department), ''), 'Unassigned')
+      ORDER BY department`,
+      isAdmin ? [] : [req.user.school_id]
+    );
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -166,19 +230,25 @@ router.get('/scores/department', async (req, res) => {
   }
 });
 
-// Performance trends by month (optional: ?year=2025)
+// Performance trends by month. Management: own school only; Admin: all.
 router.get('/scores/trends', async (req, res) => {
   try {
     const { year } = req.query;
+    const isAdmin = req.user.role === 'admin';
     const params = [];
     let paramIndex = 1;
     let whereClause = "WHERE sc.created_at >= NOW() - INTERVAL '2 years'";
+    if (!isAdmin) {
+      whereClause += ` AND s.school_id = $${paramIndex}`;
+      params.push(req.user.school_id);
+      paramIndex++;
+    }
     if (year) {
       whereClause += ` AND EXTRACT(YEAR FROM sc.created_at) = $${paramIndex}`;
       params.push(year);
     }
-    const result = await query(`
-      SELECT TO_CHAR(DATE_TRUNC('month', sc.created_at), 'YYYY-MM') AS month,
+    const result = await query(
+      `SELECT TO_CHAR(DATE_TRUNC('month', sc.created_at), 'YYYY-MM') AS month,
              ROUND(AVG(sc.overall_score)::numeric, 2) AS avg_score,
              COUNT(sc.id) AS score_count
       FROM scores sc
@@ -186,8 +256,9 @@ router.get('/scores/trends', async (req, res) => {
       ${whereClause}
       GROUP BY DATE_TRUNC('month', sc.created_at)
       ORDER BY month DESC
-      LIMIT 12
-    `, params);
+      LIMIT 12`,
+      params
+    );
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -195,10 +266,12 @@ router.get('/scores/trends', async (req, res) => {
   }
 });
 
-// Simpler trends: last 12 months (no query params required)
+// Simpler trends: last 12 months. Management: own school only; Admin: all.
 router.get('/scores/quarterly', async (req, res) => {
   try {
-    const result = await query(`
+    const isAdmin = req.user.role === 'admin';
+    const result = isAdmin
+      ? await query(`
       SELECT TO_CHAR(DATE_TRUNC('quarter', sc.created_at), 'YYYY-Q') AS quarter,
              ROUND(AVG(sc.overall_score)::numeric, 2) AS avg_overall_score,
              COUNT(sc.id) AS session_count
@@ -208,7 +281,19 @@ router.get('/scores/quarterly', async (req, res) => {
       GROUP BY DATE_TRUNC('quarter', sc.created_at)
       ORDER BY quarter DESC
       LIMIT 8
-    `);
+    `)
+      : await query(
+          `SELECT TO_CHAR(DATE_TRUNC('quarter', sc.created_at), 'YYYY-Q') AS quarter,
+             ROUND(AVG(sc.overall_score)::numeric, 2) AS avg_overall_score,
+             COUNT(sc.id) AS session_count
+      FROM scores sc
+      JOIN classroom_sessions s ON s.id = sc.session_id
+      WHERE sc.created_at >= NOW() - INTERVAL '2 years' AND s.school_id = $1
+      GROUP BY DATE_TRUNC('quarter', sc.created_at)
+      ORDER BY quarter DESC
+      LIMIT 8`,
+          [req.user.school_id]
+        );
     res.json(result.rows);
   } catch (err) {
     console.error(err);

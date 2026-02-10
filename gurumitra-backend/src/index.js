@@ -11,6 +11,7 @@ import authRoutes from './routes/auth.js';
 import teacherRoutes from './routes/teacher.js';
 import managementRoutes from './routes/management.js';
 import adminRoutes from './routes/admin.js';
+import trainingRoutes from './routes/training.js';
 
 dotenv.config();
 
@@ -74,6 +75,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/teacher', teacherRoutes);
 app.use('/api/management', managementRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/training', trainingRoutes);
 
 // 404
 app.use((req, res) => {

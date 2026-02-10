@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { query } from '../config/db.js';
 import { signToken, authenticate } from '../middleware/auth.js';
+import { audit } from '../services/auditLog.js';
 
 const router = express.Router();
 const ROLES = ['teacher', 'management', 'admin'];
@@ -45,9 +46,11 @@ router.post('/signup', async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
+    const defaultSchoolId = '00000000-0000-0000-0000-000000000001'; // Phase 5: assign default school for teacher/management
+    const schoolId = role === 'admin' ? null : defaultSchoolId;
     await query(
-      `INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
-      [trimmedName, trimmedEmail, passwordHash, role]
+      `INSERT INTO users (name, email, password_hash, role, school_id) VALUES ($1, $2, $3, $4, $5)`,
+      [trimmedName, trimmedEmail, passwordHash, role, schoolId]
     );
 
     res.status(201).json({ message: 'Account created. You can sign in now.' });
@@ -71,7 +74,7 @@ router.post('/login', async (req, res) => {
     }
 
     const result = await query(
-      'SELECT id, name, email, password_hash, role, department FROM users WHERE email = $1',
+      'SELECT id, name, email, password_hash, role, department, school_id FROM users WHERE email = $1',
       [email.trim().toLowerCase()]
     );
     const user = result.rows[0];
@@ -95,7 +98,10 @@ router.post('/login', async (req, res) => {
       id: user.id,
       email: user.email,
       role: user.role,
+      school_id: user.school_id || null,
     });
+
+    audit(user.id, user.role, 'login', 'user', user.id, user.school_id);
 
     res.json({
       token,
@@ -105,6 +111,7 @@ router.post('/login', async (req, res) => {
         email: user.email,
         role: user.role,
         department: user.department,
+        school_id: user.school_id || null,
       },
     });
   } catch (err) {
@@ -118,7 +125,7 @@ router.post('/login', async (req, res) => {
 router.get('/me', authenticate, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, name, email, role, department, created_at FROM users WHERE id = $1',
+      'SELECT id, name, email, role, department, school_id, created_at FROM users WHERE id = $1',
       [req.user.id]
     );
     const user = result.rows[0];

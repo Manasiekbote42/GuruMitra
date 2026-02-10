@@ -1,9 +1,11 @@
 /**
  * Analysis-first pipeline: feedback exists ONLY after successful video analysis.
  * No demo, mock, or placeholder feedback. Same video (content_hash) → reuse stored result.
+ * Phase 5: Session immutability—skip if is_locked; set analyzed_at and is_locked on completion. Audit log.
  */
 import { query } from '../config/db.js';
 import { analyzeVideo, mapAiResponseToDb } from './aiServiceClient.js';
+import { audit } from './auditLog.js';
 
 const PROCESSING_DELAY_MS = 2000;
 
@@ -78,14 +80,16 @@ export function processSessionAsync(sessionId, teacherId) {
   setTimeout(async () => {
     try {
       const sessionResult = await query(
-        'SELECT id, content_hash, video_url, upload_metadata FROM classroom_sessions WHERE id = $1',
+        'SELECT id, content_hash, video_url, upload_metadata, is_locked, school_id FROM classroom_sessions WHERE id = $1',
         [sessionId]
       );
       if (sessionResult.rows.length === 0) return;
-
       const row = sessionResult.rows[0];
+      if (row.is_locked) return; // Phase 5: reject re-processing; session immutable once feedback generated
+
       const contentHash = row.content_hash || null;
       const videoUrl = row.video_url ? String(row.video_url).trim() : '';
+      const schoolId = row.school_id || null;
 
       let clarity_score, engagement_score, interaction_score, overall_score;
       let strengths, improvements, recommendations;
@@ -170,7 +174,7 @@ export function processSessionAsync(sessionId, teacherId) {
       const recommendationsStr = Array.isArray(recommendations) ? recommendations.join('\n') : (recommendations || '');
 
       await query(
-        `UPDATE classroom_sessions SET status = 'completed', transcript = $2, audio_metrics = $3, content_metrics = $4, analysis_result = $5 WHERE id = $1`,
+        `UPDATE classroom_sessions SET status = 'completed', transcript = $2, audio_metrics = $3, content_metrics = $4, analysis_result = $5, analyzed_at = NOW(), is_locked = TRUE WHERE id = $1`,
         [
           sessionId,
           transcript != null ? String(transcript).slice(0, 10000) : null,
@@ -193,6 +197,7 @@ export function processSessionAsync(sessionId, teacherId) {
         `INSERT INTO system_activity (user_id, action, details) VALUES ($1, 'session_processed', $2)`,
         [teacherId, JSON.stringify({ session_id: sessionId })]
       );
+      audit(teacherId, 'teacher', 'feedback_generated', 'session', sessionId, schoolId);
     } catch (err) {
       console.error('AI processing failed for session', sessionId, err);
       const msg = (err && err.message) ? String(err.message).slice(0, 500) : 'Analysis failed';

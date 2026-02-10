@@ -4,6 +4,11 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+if (!process.env.DATABASE_URL || process.env.DATABASE_URL.trim() === '') {
+  console.error('DATABASE_URL is not set. Add it to gurumitra-backend/.env (copy from .env.example). Get a connection string from https://console.neon.tech');
+  process.exit(1);
+}
+
 // Prefer IPv4 for DNS (can fix ENOTFOUND for Neon on some networks)
 dns.setDefaultResultOrder('ipv4first');
 

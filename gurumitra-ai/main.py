@@ -46,10 +46,13 @@ import tempfile
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Body
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydub import AudioSegment
 
+
 from analyzer import download_video_or_youtube, run_analysis
+from debug_router import router as debug_router
 
 
 @asynccontextmanager
@@ -58,7 +61,10 @@ async def lifespan(app: FastAPI):
     # cleanup if needed
 
 
+
+POSTURE_OUTPUTS_DIR = str((Path(__file__).parent / "posture_outputs").resolve())
 app = FastAPI(title="GuruMitra AI", version="1.0.0", lifespan=lifespan)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -66,6 +72,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Serve static files for posture_outputs
+app.mount(
+    "/static/posture_outputs",
+    StaticFiles(directory=POSTURE_OUTPUTS_DIR),
+    name="posture_outputs"
 )
 
 
@@ -106,6 +119,8 @@ def analyze(video_url: str = Body(..., embed=True), session_id: Optional[str] = 
             except Exception:
                 pass
 
+
+app.include_router(debug_router)
 
 if __name__ == "__main__":
     import uvicorn

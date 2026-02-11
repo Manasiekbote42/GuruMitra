@@ -10,6 +10,9 @@ export default function TeacherFeedback() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // Modal state for posture images
+  const [enlargedImage, setEnlargedImage] = useState(null);
+
   useEffect(() => {
     teacherGetSessions()
       .then((s) => {
@@ -184,8 +187,65 @@ export default function TeacherFeedback() {
                     {typeof feedback.posture_analysis.avg_spine_angle === 'number' && (
                       <li>Average Spine Angle: {feedback.posture_analysis.avg_spine_angle.toFixed(1)}°</li>
                     )}
+                    {typeof feedback.posture_analysis.avg_head_tilt_angle === 'number' && (
+                      <li>Head Tilt Angle: {feedback.posture_analysis.avg_head_tilt_angle.toFixed(1)}°</li>
+                    )}
+                    {typeof feedback.posture_analysis.avg_neck_alignment === 'number' && (
+                      <li>Neck Alignment: {feedback.posture_analysis.avg_neck_alignment.toFixed(2)}</li>
+                    )}
+                    {typeof feedback.posture_analysis.avg_movement === 'number' && (
+                      <li>Movement Dynamics: {feedback.posture_analysis.avg_movement.toFixed(2)}</li>
+                    )}
+                    {typeof feedback.posture_analysis.gesture_count === 'number' && (
+                      <li>Gesture Count: {feedback.posture_analysis.gesture_count}</li>
+                    )}
                   </ul>
+                  {feedback.posture_analysis.recommendations && feedback.posture_analysis.recommendations.length > 0 && (
+                    <div className="mt-4">
+                      <p className="font-semibold text-sm text-gray-600">Recommendations:</p>
+                      <ul className="list-disc list-inside text-sm text-gray-700">
+                        {feedback.posture_analysis.recommendations.map((rec, idx) => (
+                          <li key={idx}>{rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {feedback.posture_analysis.annotated_images && feedback.posture_analysis.annotated_images.length > 0 && (
+                    <div className="mt-4">
+                      <p className="font-semibold text-sm text-gray-600">Posture Issue Snapshots:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {feedback.posture_analysis.annotated_images.map((img, idx) => (
+                          <img
+                            key={idx}
+                            src={img}
+                            alt={`Posture Issue ${idx + 1}`}
+                            className="w-32 h-32 object-cover rounded border cursor-pointer hover:scale-105 transition-transform"
+                            onClick={() => setEnlargedImage(img)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Heatmap display removed as per user request */}
                 </Card>
+
+              )}
+              {/* Modal for enlarged posture image */}
+              {enlargedImage && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60" onClick={() => setEnlargedImage(null)}>
+                  <div className="relative" onClick={e => e.stopPropagation()}>
+                    <img src={enlargedImage} alt="Enlarged Posture" className="max-w-[90vw] max-h-[80vh] rounded shadow-lg border-4 border-white" />
+                    <button
+                      className="absolute top-2 right-2 bg-white bg-opacity-80 rounded-full p-1 text-gray-700 hover:bg-opacity-100"
+                      onClick={() => setEnlargedImage(null)}
+                      aria-label="Close"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               )}
             </>
           )}

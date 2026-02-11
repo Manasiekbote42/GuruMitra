@@ -45,6 +45,9 @@ function buildAnalysisResult(sessionId, aiResponse) {
   if (aiResponse.semantic_feedback && typeof aiResponse.semantic_feedback === 'object') {
     out.semantic_feedback = aiResponse.semantic_feedback;
   }
+  if (aiResponse.posture_analysis && typeof aiResponse.posture_analysis === 'object') {
+    out.posture_analysis = aiResponse.posture_analysis;
+  }
   return out;
 }
 

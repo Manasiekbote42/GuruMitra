@@ -875,6 +875,14 @@ def run_analysis(video_path: str, session_id: Optional[str] = None) -> dict:
             "reasoning_notes": "",
         }
 
+    # Posture analysis integration
+    try:
+        from posture_analyzer import PostureAnalyzer
+        posture_analyzer = PostureAnalyzer()
+        posture_results = posture_analyzer.analyze_video(video_path)
+    except Exception as e:
+        posture_results = {"error": str(e)}
+
     out = build_session_output(
         session_id=session_id,
         transcript_summary=transcript_summary,
@@ -886,4 +894,5 @@ def run_analysis(video_path: str, session_id: Optional[str] = None) -> dict:
         metrics_content=metrics_content,
     )
     out["semantic_feedback"] = semantic_feedback
+    out["posture_analysis"] = posture_results
     return out

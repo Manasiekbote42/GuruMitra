@@ -226,6 +226,7 @@ router.get('/sessions/:sessionId/feedback', async (req, res) => {
       improvements: row.improvements ? row.improvements.split('\n').filter(Boolean) : [],
       recommendations: row.recommendations ? row.recommendations.split('\n').filter(Boolean) : [],
       semantic_feedback: semanticFeedback,
+      posture_analysis: analysisResult && typeof analysisResult.posture_analysis === 'object' ? analysisResult.posture_analysis : null,
       generated_at: row.created_at,
     });
   } catch (err) {

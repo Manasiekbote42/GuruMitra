@@ -8,3 +8,6 @@ numpy>=1.26.4,<2.7.0
 openai-whisper==20231117
 yt-dlp>=2024.1.0
 google-genai>=1.0.0
+mediapipe
+opencv-python
+numpy

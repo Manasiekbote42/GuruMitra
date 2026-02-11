@@ -165,6 +165,28 @@ export default function TeacherFeedback() {
                   </ul>
                 </Card>
               </div>
+              {feedback.posture_analysis && (
+                <Card title="Posture Analysis">
+                  <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
+                    {feedback.posture_analysis.feedback && feedback.posture_analysis.feedback.length > 0 ? (
+                      feedback.posture_analysis.feedback.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))
+                    ) : (
+                      <li className="text-gray-500">No posture feedback available.</li>
+                    )}
+                    {typeof feedback.posture_analysis.slouch_percent === 'number' && (
+                      <li>Slouching: {feedback.posture_analysis.slouch_percent.toFixed(1)}%</li>
+                    )}
+                    {typeof feedback.posture_analysis.shoulder_tension_percent === 'number' && (
+                      <li>Shoulder Tension: {feedback.posture_analysis.shoulder_tension_percent.toFixed(1)}%</li>
+                    )}
+                    {typeof feedback.posture_analysis.avg_spine_angle === 'number' && (
+                      <li>Average Spine Angle: {feedback.posture_analysis.avg_spine_angle.toFixed(1)}°</li>
+                    )}
+                  </ul>
+                </Card>
+              )}
             </>
           )}
         </>

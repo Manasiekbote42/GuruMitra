@@ -170,48 +170,83 @@ export default function TeacherFeedback() {
               </div>
               {feedback.posture_analysis && (
                 <Card title="Posture Analysis">
-                  <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
-                    {feedback.posture_analysis.feedback && feedback.posture_analysis.feedback.length > 0 ? (
-                      feedback.posture_analysis.feedback.map((item, idx) => (
-                        <li key={idx}>{item}</li>
-                      ))
-                    ) : (
-                      <li className="text-gray-500">No posture feedback available.</li>
-                    )}
-                    {typeof feedback.posture_analysis.slouch_percent === 'number' && (
-                      <li>Slouching: {feedback.posture_analysis.slouch_percent.toFixed(1)}%</li>
-                    )}
-                    {typeof feedback.posture_analysis.shoulder_tension_percent === 'number' && (
-                      <li>Shoulder Tension: {feedback.posture_analysis.shoulder_tension_percent.toFixed(1)}%</li>
-                    )}
-                    {typeof feedback.posture_analysis.avg_spine_angle === 'number' && (
-                      <li>Average Spine Angle: {feedback.posture_analysis.avg_spine_angle.toFixed(1)}°</li>
-                    )}
-                    {typeof feedback.posture_analysis.avg_head_tilt_angle === 'number' && (
-                      <li>Head Tilt Angle: {feedback.posture_analysis.avg_head_tilt_angle.toFixed(1)}°</li>
-                    )}
-                    {typeof feedback.posture_analysis.avg_neck_alignment === 'number' && (
-                      <li>Neck Alignment: {feedback.posture_analysis.avg_neck_alignment.toFixed(2)}</li>
-                    )}
-                    {typeof feedback.posture_analysis.avg_movement === 'number' && (
-                      <li>Movement Dynamics: {feedback.posture_analysis.avg_movement.toFixed(2)}</li>
-                    )}
-                    {typeof feedback.posture_analysis.gesture_count === 'number' && (
-                      <li>Gesture Count: {feedback.posture_analysis.gesture_count}</li>
-                    )}
-                    {typeof feedback.posture_analysis.eye_contact_percent === 'number' && (
-                      <li>Eye Contact: {feedback.posture_analysis.eye_contact_percent.toFixed(1)}%</li>
-                    )}
-                    {typeof feedback.posture_analysis.phone_usage_percent === 'number' && (
-                      <li>Phone Usage: {feedback.posture_analysis.phone_usage_percent.toFixed(1)}%</li>
-                    )}
-                    {typeof feedback.posture_analysis.reading_posture_percent === 'number' && (
-                      <li>Reading from materials: {feedback.posture_analysis.reading_posture_percent.toFixed(1)}%</li>
-                    )}
-                    {typeof feedback.posture_analysis.explaining_posture_percent === 'number' && (
-                      <li>Explaining / engaging: {feedback.posture_analysis.explaining_posture_percent.toFixed(1)}%</li>
-                    )}
-                  </ul>
+                  {(() => {
+                    const posture = feedback.posture_analysis || {};
+                    const rawFeedback = posture.feedback || [];
+                    // Simple split: lines starting with "Good" or "No " are treated as positive
+                    const positive = rawFeedback.filter((line) => {
+                      if (!line || typeof line !== 'string') return false;
+                      const trimmed = line.trim();
+                      const lower = trimmed.toLowerCase();
+                      return trimmed.startsWith('Good') || trimmed.startsWith('No ') || lower.includes('good balance');
+                    });
+                    const negative = rawFeedback.filter((line) => !positive.includes(line));
+                    return (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
+                          <div>
+                            <p className="font-semibold text-gray-700 mb-1">What went well</p>
+                            <ul className="list-disc list-inside space-y-1">
+                              {positive.length ? (
+                                positive.map((item, idx) => <li key={idx}>{item}</li>)
+                              ) : (
+                                <li className="text-gray-500">No specific positive posture notes for this session.</li>
+                              )}
+                            </ul>
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-700 mb-1">Posture issues to watch</p>
+                            <ul className="list-disc list-inside space-y-1">
+                              {negative.length ? (
+                                negative.map((item, idx) => <li key={idx}>{item}</li>)
+                              ) : (
+                                <li className="text-gray-500">No major posture issues detected in this session.</li>
+                              )}
+                            </ul>
+                          </div>
+                        </div>
+
+                        <div className="mt-4">
+                          <p className="font-semibold text-sm text-gray-700 mb-1">Posture metrics (for reference)</p>
+                          <ul className="list-disc list-inside space-y-1 text-sm text-gray-700">
+                            {typeof posture.slouch_percent === 'number' && (
+                              <li>Slouching: {posture.slouch_percent.toFixed(1)}%</li>
+                            )}
+                            {typeof posture.shoulder_tension_percent === 'number' && (
+                              <li>Shoulder Tension: {posture.shoulder_tension_percent.toFixed(1)}%</li>
+                            )}
+                            {typeof posture.avg_spine_angle === 'number' && (
+                              <li>Average Spine Angle: {posture.avg_spine_angle.toFixed(1)}°</li>
+                            )}
+                            {typeof posture.avg_head_tilt_angle === 'number' && (
+                              <li>Head Tilt Angle: {posture.avg_head_tilt_angle.toFixed(1)}°</li>
+                            )}
+                            {typeof posture.avg_neck_alignment === 'number' && (
+                              <li>Neck Alignment: {posture.avg_neck_alignment.toFixed(2)}</li>
+                            )}
+                            {typeof posture.avg_movement === 'number' && (
+                              <li>Movement Dynamics: {posture.avg_movement.toFixed(2)}</li>
+                            )}
+                            {typeof posture.gesture_count === 'number' && (
+                              <li>Gesture Count: {posture.gesture_count}</li>
+                            )}
+                            {typeof posture.eye_contact_percent === 'number' && (
+                              <li>Eye Contact: {posture.eye_contact_percent.toFixed(1)}%</li>
+                            )}
+                            {typeof posture.phone_usage_percent === 'number' && (
+                              <li>Phone Usage: {posture.phone_usage_percent.toFixed(1)}%</li>
+                            )}
+                            {typeof posture.reading_posture_percent === 'number' && (
+                              <li>Reading from materials: {posture.reading_posture_percent.toFixed(1)}%</li>
+                            )}
+                            {typeof posture.explaining_posture_percent === 'number' && (
+                              <li>Explaining / engaging: {posture.explaining_posture_percent.toFixed(1)}%</li>
+                            )}
+                          </ul>
+                        </div>
+                      </>
+                    );
+                  })()}
                   {feedback.posture_analysis.recommendations && feedback.posture_analysis.recommendations.length > 0 && (
                     <div className="mt-4">
                       <p className="font-semibold text-sm text-gray-600">Recommendations:</p>

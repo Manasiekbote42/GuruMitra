@@ -11,3 +11,6 @@ google-genai>=1.0.0
 mediapipe
 opencv-python
 numpy
+# Optional: for phone usage detection in posture analysis (YOLOv8)
+ultralytics>=8.0.0
+# If openai-whisper fails to build (pkg_resources): pip install "setuptools<60" wheel && pip install --no-build-isolation openai-whisper==20231117

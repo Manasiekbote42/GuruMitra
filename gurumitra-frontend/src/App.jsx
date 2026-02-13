@@ -15,6 +15,8 @@ import ManagementDepartments from './pages/management/ManagementDepartments';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminActivity from './pages/admin/AdminActivity';
+import AdminTrainingLibrary from './pages/admin/AdminTrainingLibrary';
+import TrainingLibraryView from './pages/shared/TrainingLibraryView';
 
 function HomeRedirect() {
   const { user } = useAuth();
@@ -41,17 +43,20 @@ function AppRoutes() {
         <Route path="upload" element={<TeacherUpload />} />
         <Route path="feedback" element={<TeacherFeedback />} />
         <Route path="training" element={<TeacherTraining />} />
+        <Route path="training-library" element={<TrainingLibraryView />} />
       </Route>
 
       <Route path="/management" element={<ProtectedLayout allowedRoles={['management', 'admin']} title="Management" />}>
         <Route path="dashboard" element={<ManagementDashboard />} />
         <Route path="teachers" element={<ManagementTeachers />} />
         <Route path="departments" element={<ManagementDepartments />} />
+        <Route path="training-library" element={<TrainingLibraryView />} />
       </Route>
 
       <Route path="/admin" element={<ProtectedLayout allowedRoles={['admin']} title="Admin" />}>
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="users" element={<AdminUsers />} />
+        <Route path="training-library" element={<AdminTrainingLibrary />} />
         <Route path="activity" element={<AdminActivity />} />
       </Route>
 

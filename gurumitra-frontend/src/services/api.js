@@ -139,4 +139,22 @@ export const adminGetAuditLogs = (limit = 100, offset = 0, action = '') =>
 /** Phase 5: List schools for assignment. */
 export const adminGetSchools = () => api.get('/api/admin/schools').then((r) => r.data);
 
+/** Training Library (read-only for teacher/management) */
+export const trainingLibraryGetList = (params) =>
+  api.get('/api/training-library', { params: params || {} }).then((r) => r.data);
+export const trainingLibraryGetCategories = () =>
+  api.get('/api/training-library/categories').then((r) => r.data);
+export const trainingLibraryFileUrl = (id) =>
+  `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/training-library/file/${id}`;
+
+/** Admin: Training Library CRUD */
+export const adminTrainingLibraryGetList = () =>
+  api.get('/api/admin/training-library').then((r) => r.data);
+export const adminTrainingLibraryCreate = (formData) =>
+  api.post('/api/admin/training-library', formData, { headers: { 'Content-Type': undefined } }).then((r) => r.data);
+export const adminTrainingLibraryUpdate = (id, formData) =>
+  api.put(`/api/admin/training-library/${id}`, formData, { headers: { 'Content-Type': undefined } }).then((r) => r.data);
+export const adminTrainingLibraryDelete = (id) =>
+  api.delete(`/api/admin/training-library/${id}`).then((r) => r.data);
+
 export default api;

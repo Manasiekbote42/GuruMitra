@@ -6,15 +6,18 @@ const roleLinks = {
     { to: '/teacher/upload', label: 'Upload Video', icon: '📤' },
     { to: '/teacher/feedback', label: 'Expert Feedback', icon: '💬' },
     { to: '/teacher/training', label: 'Training', icon: '📚' },
+    { to: '/teacher/training-library', label: 'Training Library', icon: '📖' },
   ],
   management: [
     { to: '/management/dashboard', label: 'Dashboard', icon: '📊' },
     { to: '/management/teachers', label: 'Teachers', icon: '👥' },
     { to: '/management/departments', label: 'Departments', icon: '🏫' },
+    { to: '/management/training-library', label: 'Training Library', icon: '📖' },
   ],
   admin: [
     { to: '/admin/dashboard', label: 'Dashboard', icon: '⚙️' },
     { to: '/admin/users', label: 'User Management', icon: '👤' },
+    { to: '/admin/training-library', label: 'Training Library', icon: '📖' },
     { to: '/admin/activity', label: 'System Activity', icon: '📋' },
   ],
 };

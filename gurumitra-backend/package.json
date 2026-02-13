@@ -10,6 +10,7 @@
     "db:migrate": "node src/db/migrate.js",
     "db:migrate:phase5": "node src/db/migrate-phase5.js",
     "db:migrate:training": "node src/db/migrate-training.js",
+    "db:migrate:training-library": "node src/db/migrate-training-library.js",
     "db:seed": "node src/db/seed.js",
     "db:seed:training": "node src/db/seed-training.js"
   },

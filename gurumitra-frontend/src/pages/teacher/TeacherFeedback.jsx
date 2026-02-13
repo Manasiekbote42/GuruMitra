@@ -199,6 +199,18 @@ export default function TeacherFeedback() {
                     {typeof feedback.posture_analysis.gesture_count === 'number' && (
                       <li>Gesture Count: {feedback.posture_analysis.gesture_count}</li>
                     )}
+                    {typeof feedback.posture_analysis.eye_contact_percent === 'number' && (
+                      <li>Eye Contact: {feedback.posture_analysis.eye_contact_percent.toFixed(1)}%</li>
+                    )}
+                    {typeof feedback.posture_analysis.phone_usage_percent === 'number' && (
+                      <li>Phone Usage: {feedback.posture_analysis.phone_usage_percent.toFixed(1)}%</li>
+                    )}
+                    {typeof feedback.posture_analysis.reading_posture_percent === 'number' && (
+                      <li>Reading from materials: {feedback.posture_analysis.reading_posture_percent.toFixed(1)}%</li>
+                    )}
+                    {typeof feedback.posture_analysis.explaining_posture_percent === 'number' && (
+                      <li>Explaining / engaging: {feedback.posture_analysis.explaining_posture_percent.toFixed(1)}%</li>
+                    )}
                   </ul>
                   {feedback.posture_analysis.recommendations && feedback.posture_analysis.recommendations.length > 0 && (
                     <div className="mt-4">

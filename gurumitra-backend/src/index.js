@@ -3,10 +3,14 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import http from 'http';
+import https from 'https';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 import { testConnection } from './config/db.js';
+
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 import authRoutes from './routes/auth.js';
 import teacherRoutes from './routes/teacher.js';
 import managementRoutes from './routes/management.js';
@@ -50,6 +54,23 @@ app.get('/health', async (req, res) => {
     status: dbOk ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
     database: dbOk ? 'connected' : 'disconnected',
+  });
+});
+
+// Proxy posture images from AI service (no auth - frontend loads via img src)
+app.get('/api/ai/posture-outputs/:filename', (req, res) => {
+  const { filename } = req.params;
+  if (!filename || !/^[a-zA-Z0-9_.-]+$/.test(filename)) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+  const url = `${AI_SERVICE_URL.replace(/\/$/, '')}/static/posture_outputs/${filename}`;
+  const lib = url.startsWith('https') ? https : http;
+  lib.get(url, (proxyRes) => {
+    res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'application/octet-stream');
+    proxyRes.pipe(res);
+  }).on('error', (err) => {
+    console.error('Posture image proxy error:', err);
+    res.status(502).json({ error: 'Failed to fetch image from AI service' });
   });
 });
 

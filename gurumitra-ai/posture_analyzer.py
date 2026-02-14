@@ -70,7 +70,7 @@ class PostureAnalyzer:
         movement_dynamics = []
         gesture_count = 0
         spine_angles = []
-        annotated_frames = []
+        annotated_frames = []  # list of (path, issue_label) tuples
         prev_landmarks = None
         # New metrics: eye contact, phone usage, reading vs explaining
         eye_contact_frames = 0
@@ -83,8 +83,10 @@ class PostureAnalyzer:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        # Sample frames at intervals to avoid duplicates
-        save_interval = 10  # Save at every 10th frame with issue
+        # Stricter thresholds for saving posture-issue frames (only obvious issues)
+        SLOUCH_ANGLE_THRESHOLD = 145   # spine angle below this = clear slouch
+        HEAD_TILT_THRESHOLD = 25       # degrees - only save if head tilt exceeds this
+        max_annotated = 5
         eye_contact_sample = 5   # run face mesh every 5th frame
         phone_sample = 10       # run YOLO every 10th frame
         while cap.isOpened():
@@ -175,14 +177,25 @@ class PostureAnalyzer:
                     if self._has_phone_in_frame(frame):
                         phone_frames += 1
 
-                # Annotate and save up to 5 unique frames if posture issue detected, spaced by interval
-                if (angle < 150 or abs(head_tilt) > 15) and len(annotated_frames) < 5 and (frame_count % save_interval == 0):
+                # Annotate and save up to 5 frames only when posture issue is CLEAR (stricter thresholds)
+                has_slouch = angle < SLOUCH_ANGLE_THRESHOLD
+                has_head_tilt = abs(head_tilt) > HEAD_TILT_THRESHOLD
+                if (has_slouch or has_head_tilt) and len(annotated_frames) < max_annotated and (frame_count % 15 == 0):
+                    # Build specific issue label for this frame
+                    issues = []
+                    if has_slouch:
+                        issues.append(f"Slouching (spine {angle:.0f}°)")
+                    if has_head_tilt:
+                        issues.append(f"Head tilt ({head_tilt:.0f}°)")
+                    issue_label = " | ".join(issues)
                     annotated_path = os.path.join(output_dir, f"frame_{frame_count}.jpg")
                     annotated_frame = frame.copy()
                     self.draw_skeleton(annotated_frame, results.pose_landmarks)
-                    cv2.putText(annotated_frame, "Posture Issue", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
+                    # Draw specific issue(s) on image - two lines if needed
+                    cv2.putText(annotated_frame, issue_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.putText(annotated_frame, "Keep spine straight, head level", (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 80, 80), 1)
                     cv2.imwrite(annotated_path, annotated_frame)
-                    annotated_frames.append(annotated_path)
+                    annotated_frames.append((annotated_path, issue_label))
 
         cap.release()
 
@@ -276,9 +289,8 @@ class PostureAnalyzer:
 
         # Convert annotated image paths to URLs for frontend (assuming /static/posture_outputs is served)
         base_url = "http://localhost:8000/static/posture_outputs"  # Adjust if needed
-        annotated_images_urls = [
-            f"{base_url}/{os.path.basename(path)}" for path in annotated_frames
-        ]
+        annotated_images_urls = [f"{base_url}/{os.path.basename(path)}" for path, _ in annotated_frames]
+        annotated_image_labels = [label for _, label in annotated_frames]
         heatmap_url = f"{base_url}/{os.path.basename(heatmap_path)}" if heatmap_path else None
 
         # If no posture issues detected, provide a default feedback message
@@ -303,6 +315,7 @@ class PostureAnalyzer:
             "feedback": feedback,
             "recommendations": recommendations,
             "annotated_images": annotated_images_urls,
+            "annotated_image_labels": annotated_image_labels,
             "heatmap": heatmap_url
         }
 

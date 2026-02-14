@@ -217,6 +217,23 @@ router.get('/sessions/:sessionId/feedback', async (req, res) => {
     }
     const analysisResult = sessionRow.rows[0]?.analysis_result || null;
     const semanticFeedback = analysisResult && typeof analysisResult.semantic_feedback === 'object' ? analysisResult.semantic_feedback : null;
+    let postureAnalysis = analysisResult && typeof analysisResult.posture_analysis === 'object' ? analysisResult.posture_analysis : null;
+
+    // Rewrite posture image URLs to go through our proxy (so frontend can load them)
+    if (postureAnalysis) {
+      const apiBase = `${req.protocol}://${req.get('host')}`;
+      postureAnalysis = { ...postureAnalysis };
+      if (Array.isArray(postureAnalysis.annotated_images)) {
+        postureAnalysis.annotated_images = postureAnalysis.annotated_images.map((url) => {
+          const filename = typeof url === 'string' ? url.split('/').pop() : null;
+          return filename ? `${apiBase}/api/ai/posture-outputs/${filename}` : url;
+        });
+      }
+      if (postureAnalysis.heatmap) {
+        const hmFilename = String(postureAnalysis.heatmap).split('/').pop();
+        if (hmFilename) postureAnalysis.heatmap = `${apiBase}/api/ai/posture-outputs/${hmFilename}`;
+      }
+    }
 
     audit(teacherId, 'teacher', 'feedback_view', 'session', sessionId, req.user.school_id);
 
@@ -226,7 +243,7 @@ router.get('/sessions/:sessionId/feedback', async (req, res) => {
       improvements: row.improvements ? row.improvements.split('\n').filter(Boolean) : [],
       recommendations: row.recommendations ? row.recommendations.split('\n').filter(Boolean) : [],
       semantic_feedback: semanticFeedback,
-      posture_analysis: analysisResult && typeof analysisResult.posture_analysis === 'object' ? analysisResult.posture_analysis : null,
+      posture_analysis: postureAnalysis,
       generated_at: row.created_at,
     });
   } catch (err) {

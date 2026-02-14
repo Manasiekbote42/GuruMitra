@@ -259,17 +259,27 @@ export default function TeacherFeedback() {
                   )}
                   {feedback.posture_analysis.annotated_images && feedback.posture_analysis.annotated_images.length > 0 && (
                     <div className="mt-4">
-                      <p className="font-semibold text-sm text-gray-600">Posture Issue Snapshots:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {feedback.posture_analysis.annotated_images.map((img, idx) => (
-                          <img
-                            key={idx}
-                            src={img}
-                            alt={`Posture Issue ${idx + 1}`}
-                            className="w-32 h-32 object-cover rounded border cursor-pointer hover:scale-105 transition-transform"
-                            onClick={() => setEnlargedImage(img)}
-                          />
-                        ))}
+                      <p className="font-semibold text-sm text-gray-600 mb-2">Posture Issue Snapshots:</p>
+                      <p className="text-xs text-gray-500 mb-2">Click to enlarge. Each image shows the specific issue detected at that moment.</p>
+                      <div className="flex flex-wrap gap-4">
+                        {feedback.posture_analysis.annotated_images.map((img, idx) => {
+                          const label = feedback.posture_analysis.annotated_image_labels?.[idx];
+                          return (
+                            <div key={idx} className="flex flex-col items-start">
+                              <img
+                                src={img}
+                                alt={label || `Posture issue ${idx + 1}`}
+                                className="w-36 h-36 object-cover rounded border-2 border-red-200 cursor-pointer hover:scale-105 transition-transform"
+                                onClick={() => setEnlargedImage(img)}
+                              />
+                              {label && (
+                                <p className="mt-1 text-xs text-red-700 font-medium max-w-[9rem]" title={label}>
+                                  {label}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

@@ -5,15 +5,23 @@ import { getMe, teacherUploadSession, teacherUploadSessionFile, teacherGetSessio
 
 const POLL_INTERVAL_MS = 1500;
 
+const SUBJECTS = ['Mathematics', 'Science', 'English', 'Hindi', 'Social Studies', 'Physics', 'Chemistry', 'Biology', 'History', 'Geography', 'Economics', 'Computer Science', 'Physical Education', 'Art', 'Music', 'Other'];
+
+const DEPARTMENTS = ['Mathematics', 'Science', 'Languages', 'Humanities', 'Social Sciences', 'Computer Science', 'Physical Education', 'Arts', 'Administration', 'Other'];
+
+const GRADES = Array.from({ length: 10 }, (_, i) => `Class ${i + 1}`);
+
 export default function TeacherUpload() {
   const navigate = useNavigate();
   const [videoUrl, setVideoUrl] = useState('');
   const [videoFile, setVideoFile] = useState(null);
   const [videoTitle, setVideoTitle] = useState('');
   const [subject, setSubject] = useState('');
+  const [subjectOther, setSubjectOther] = useState('');
   const [gradeClass, setGradeClass] = useState('');
   const [dateOfRecording, setDateOfRecording] = useState('');
   const [department, setDepartment] = useState('');
+  const [departmentOther, setDepartmentOther] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [session, setSession] = useState(null);
@@ -49,16 +57,38 @@ export default function TeacherUpload() {
       setError('Enter a YouTube or video URL, or choose a file to upload.');
       return;
     }
+    if (!videoTitle.trim()) {
+      setError('Please enter a video title.');
+      return;
+    }
+    const subjectValue = subject === 'Other' ? subjectOther.trim() : subject.trim();
+    if (!subjectValue) {
+      setError(subject === 'Other' ? 'Please enter the subject name.' : 'Please select a subject.');
+      return;
+    }
+    if (!gradeClass.trim()) {
+      setError('Please select a grade/class.');
+      return;
+    }
+    if (!dateOfRecording.trim()) {
+      setError('Please select the date of recording.');
+      return;
+    }
+    const departmentValue = department === 'Other' ? departmentOther.trim() : department.trim();
+    if (!departmentValue) {
+      setError(department === 'Other' ? 'Please enter the department name.' : 'Please select a department.');
+      return;
+    }
     setLoading(true);
     setSession(null);
     setSessionStatus('processing');
     setSessionError(null);
     const details = {
       video_title: videoTitle.trim() || undefined,
-      subject: subject.trim() || undefined,
+      subject: subjectValue || undefined,
       grade_class: gradeClass.trim() || undefined,
       date_of_recording: dateOfRecording.trim() || undefined,
-      department: department.trim() || undefined,
+      department: departmentValue || undefined,
     };
     try {
       const data = videoFile
@@ -106,7 +136,7 @@ export default function TeacherUpload() {
           {error && <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{error}</div>}
           <div>
             <label htmlFor="video_title" className="block text-sm font-medium text-gray-700 mb-1">
-              Video Title
+              Video Title <span className="text-red-500">*</span>
             </label>
             <input
               id="video_title"
@@ -119,60 +149,88 @@ export default function TeacherUpload() {
           </div>
           <div>
             <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-1">
-              Subject
+              Subject <span className="text-red-500">*</span>
             </label>
-            <input
+            <select
               id="subject"
-              type="text"
               value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="e.g., Mathematics"
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-            />
+              onChange={(e) => { setSubject(e.target.value); if (e.target.value !== 'Other') setSubjectOther(''); }}
+              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none bg-white"
+            >
+              <option value="">Select subject</option>
+              {SUBJECTS.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            {subject === 'Other' && (
+              <input
+                type="text"
+                value={subjectOther}
+                onChange={(e) => setSubjectOther(e.target.value)}
+                placeholder="Enter subject name"
+                className="mt-2 w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+              />
+            )}
           </div>
           <div>
             <label htmlFor="grade_class" className="block text-sm font-medium text-gray-700 mb-1">
-              Grade/Class
+              Grade/Class <span className="text-red-500">*</span>
             </label>
-            <input
+            <select
               id="grade_class"
-              type="text"
               value={gradeClass}
               onChange={(e) => setGradeClass(e.target.value)}
-              placeholder="e.g., Class 10"
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-            />
+              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none bg-white"
+            >
+              <option value="">Select class</option>
+              {GRADES.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label htmlFor="date_of_recording" className="block text-sm font-medium text-gray-700 mb-1">
-              Date of Recording
+              Date of Recording <span className="text-red-500">*</span>
             </label>
             <input
               id="date_of_recording"
-              type="text"
+              type="date"
               value={dateOfRecording}
               onChange={(e) => setDateOfRecording(e.target.value)}
-              placeholder="dd-mm-yyyy"
               className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             />
           </div>
           <div>
             <label htmlFor="department" className="block text-sm font-medium text-gray-700 mb-1">
-              Department
+              Department <span className="text-red-500">*</span>
             </label>
-            <input
+            <select
               id="department"
-              type="text"
               value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              placeholder="e.g., Mathematics, Science"
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-            />
-            <p className="mt-1 text-xs text-gray-500">Shown on management dashboard. Update anytime by submitting a new upload with a different department.</p>
+              onChange={(e) => { setDepartment(e.target.value); if (e.target.value !== 'Other') setDepartmentOther(''); }}
+              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none bg-white"
+            >
+              <option value="">Select department</option>
+              {DEPARTMENTS.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+              {department && !DEPARTMENTS.includes(department) && (
+                <option value={department}>{department}</option>
+              )}
+            </select>
+            {department === 'Other' && (
+              <input
+                type="text"
+                value={departmentOther}
+                onChange={(e) => setDepartmentOther(e.target.value)}
+                placeholder="Enter department name"
+                className="mt-2 w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+              />
+            )}
           </div>
           <div>
             <label htmlFor="video_url" className="block text-sm font-medium text-gray-700 mb-1">
-              YouTube or video URL
+              YouTube or video URL <span className="text-red-500">*</span>
             </label>
             <input
               id="video_url"
@@ -183,7 +241,6 @@ export default function TeacherUpload() {
               className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
               disabled={!!videoFile}
             />
-            <p className="mt-1 text-xs text-gray-500">YouTube, youtu.be, or direct .mp4 links supported.</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

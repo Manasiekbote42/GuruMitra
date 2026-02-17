@@ -41,6 +41,7 @@ function AppRoutes() {
         <Route path="dashboard" element={<TeacherDashboard />} />
         <Route path="upload" element={<TeacherUpload />} />
         <Route path="feedback" element={<TeacherFeedback />} />
+        <Route path="training-library" element={<TrainingLibraryView />} />
       </Route>
 
       <Route path="/management" element={<ProtectedLayout allowedRoles={['management', 'admin']} title="Management" />}>

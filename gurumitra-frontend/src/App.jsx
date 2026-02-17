@@ -8,7 +8,6 @@ import ResetPassword from './pages/ResetPassword';
 import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import TeacherUpload from './pages/teacher/TeacherUpload';
 import TeacherFeedback from './pages/teacher/TeacherFeedback';
-import TeacherTraining from './pages/teacher/TeacherTraining';
 import ManagementDashboard from './pages/management/ManagementDashboard';
 import ManagementTeachers from './pages/management/ManagementTeachers';
 import ManagementDepartments from './pages/management/ManagementDepartments';
@@ -42,8 +41,6 @@ function AppRoutes() {
         <Route path="dashboard" element={<TeacherDashboard />} />
         <Route path="upload" element={<TeacherUpload />} />
         <Route path="feedback" element={<TeacherFeedback />} />
-        <Route path="training" element={<TeacherTraining />} />
-        <Route path="training-library" element={<TrainingLibraryView />} />
       </Route>
 
       <Route path="/management" element={<ProtectedLayout allowedRoles={['management', 'admin']} title="Management" />}>

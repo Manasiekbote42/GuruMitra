@@ -5,6 +5,7 @@ const roleLinks = {
     { to: '/teacher/dashboard', label: 'Dashboard', icon: '📊' },
     { to: '/teacher/upload', label: 'Upload Video', icon: '📤' },
     { to: '/teacher/feedback', label: 'Expert Feedback', icon: '💬' },
+    { to: '/teacher/training-library', label: 'Training Library', icon: '📖' },
   ],
   management: [
     { to: '/management/dashboard', label: 'Dashboard', icon: '📊' },

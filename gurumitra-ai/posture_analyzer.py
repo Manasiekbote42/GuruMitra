@@ -3,6 +3,7 @@ import mediapipe as mp
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import time
 
 # Optional: YOLO for phone detection (graceful fallback if not installed)
 _phone_detector = None
@@ -82,6 +83,15 @@ class PostureAnalyzer:
 
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
+        else:
+            # Clear previous session's outputs so we extract fresh images from each new video
+            for f in os.listdir(output_dir):
+                path = os.path.join(output_dir, f)
+                if os.path.isfile(path) and (f.endswith('.jpg') or f.endswith('.png')):
+                    try:
+                        os.unlink(path)
+                    except Exception:
+                        pass
 
         # Stricter thresholds for saving posture-issue frames (only obvious issues)
         SLOUCH_ANGLE_THRESHOLD = 145   # spine angle below this = clear slouch
@@ -287,11 +297,12 @@ class PostureAnalyzer:
         if reading_posture_percent > 30:
             recommendations.append("Reduce reading from textbook; explain concepts in your own words and use the board or gestures.")
 
-        # Convert annotated image paths to URLs for frontend (assuming /static/posture_outputs is served)
-        base_url = "http://localhost:8000/static/posture_outputs"  # Adjust if needed
-        annotated_images_urls = [f"{base_url}/{os.path.basename(path)}" for path, _ in annotated_frames]
+        # Convert annotated image paths to URLs for frontend. Add timestamp to avoid browser cache.
+        cache_bust = int(time.time())
+        base_url = "http://localhost:8000/static/posture_outputs"
+        annotated_images_urls = [f"{base_url}/{os.path.basename(path)}?t={cache_bust}" for path, _ in annotated_frames]
         annotated_image_labels = [label for _, label in annotated_frames]
-        heatmap_url = f"{base_url}/{os.path.basename(heatmap_path)}" if heatmap_path else None
+        heatmap_url = f"{base_url}/{os.path.basename(heatmap_path)}?t={cache_bust}" if heatmap_path else None
 
         # If no posture issues detected, provide a default feedback message
         if not feedback:

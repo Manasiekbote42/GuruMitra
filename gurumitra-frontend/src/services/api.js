@@ -83,10 +83,6 @@ export const teacherGetScores = (sessionId) =>
 export const teacherGetRecommendations = () =>
   api.get('/api/teacher/recommendations').then((r) => r.data);
 
-/** Phase 4: Rule-based training recommendations from latest session analysis (question_count, example_count, structure_score, interaction_score). */
-export const getTrainingRecommendations = (teacherId) =>
-  api.get(`/api/training/recommendations/${teacherId}`).then((r) => r.data);
-
 export const managementGetRecentSessions = (limit = 20) =>
   api.get('/api/management/recent-sessions', { params: { limit } }).then((r) => r.data);
 

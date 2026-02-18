@@ -13,10 +13,19 @@ function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+function toArray(val) {
+  if (Array.isArray(val)) return val.filter(Boolean).map(String);
+  if (typeof val === 'string') {
+    if (val.startsWith('{') && val.endsWith('}')) return val.slice(1, -1).split(',').map((s) => s.trim()).filter(Boolean);
+    return val.trim() ? [val.trim()] : [];
+  }
+  return [];
+}
+
 // Sign up: name, email, password, role. No plain passwords stored.
 router.post('/signup', async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, role } = req.body;
+    const { name, email, password, confirmPassword, role, subjects, classes } = req.body;
     const trimmedName = (name || '').trim();
     const trimmedEmail = (email || '').trim().toLowerCase();
 
@@ -40,6 +49,13 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'Please select a role: Teacher, Management, or Admin' });
     }
 
+    const subjectsArr = role === 'teacher' ? toArray(subjects) : [];
+    const classesArr = role === 'teacher' ? toArray(classes) : [];
+    if (role === 'teacher') {
+      if (subjectsArr.length === 0) return res.status(400).json({ error: 'Please select at least one subject you teach' });
+      if (classesArr.length === 0) return res.status(400).json({ error: 'Please select at least one class you teach' });
+    }
+
     const existing = await query('SELECT id FROM users WHERE email = $1', [trimmedEmail]);
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'An account with this email already exists' });
@@ -49,8 +65,8 @@ router.post('/signup', async (req, res) => {
     const defaultSchoolId = '00000000-0000-0000-0000-000000000001'; // Phase 5: assign default school for teacher/management
     const schoolId = role === 'admin' ? null : defaultSchoolId;
     await query(
-      `INSERT INTO users (name, email, password_hash, role, school_id) VALUES ($1, $2, $3, $4, $5)`,
-      [trimmedName, trimmedEmail, passwordHash, role, schoolId]
+      `INSERT INTO users (name, email, password_hash, role, school_id, subjects, classes) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [trimmedName, trimmedEmail, passwordHash, role, schoolId, subjectsArr, classesArr]
     );
 
     res.status(201).json({ message: 'Account created. You can sign in now.' });
@@ -74,7 +90,7 @@ router.post('/login', async (req, res) => {
     }
 
     const result = await query(
-      'SELECT id, name, email, password_hash, role, department, school_id FROM users WHERE email = $1',
+      'SELECT id, name, email, password_hash, role, department, school_id, subjects, classes FROM users WHERE email = $1',
       [email.trim().toLowerCase()]
     );
     const user = result.rows[0];
@@ -112,6 +128,8 @@ router.post('/login', async (req, res) => {
         role: user.role,
         department: user.department,
         school_id: user.school_id || null,
+        subjects: toArray(user.subjects),
+        classes: toArray(user.classes),
       },
     });
   } catch (err) {
@@ -125,14 +143,18 @@ router.post('/login', async (req, res) => {
 router.get('/me', authenticate, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, name, email, role, department, school_id, created_at FROM users WHERE id = $1',
+      'SELECT id, name, email, role, department, school_id, subjects, classes, created_at FROM users WHERE id = $1',
       [req.user.id]
     );
     const user = result.rows[0];
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    res.json(user);
+    res.json({
+      ...user,
+      subjects: toArray(user.subjects),
+      classes: toArray(user.classes),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch user' });

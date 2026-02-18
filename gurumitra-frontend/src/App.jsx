@@ -16,6 +16,7 @@ import AdminUsers from './pages/admin/AdminUsers';
 import AdminActivity from './pages/admin/AdminActivity';
 import AdminTrainingLibrary from './pages/admin/AdminTrainingLibrary';
 import TrainingLibraryView from './pages/shared/TrainingLibraryView';
+import Profile from './pages/Profile';
 
 function HomeRedirect() {
   const { user } = useAuth();
@@ -42,6 +43,7 @@ function AppRoutes() {
         <Route path="upload" element={<TeacherUpload />} />
         <Route path="feedback" element={<TeacherFeedback />} />
         <Route path="training-library" element={<TrainingLibraryView />} />
+        <Route path="profile" element={<Profile />} />
       </Route>
 
       <Route path="/management" element={<ProtectedLayout allowedRoles={['management', 'admin']} title="Management" />}>
@@ -49,6 +51,7 @@ function AppRoutes() {
         <Route path="teachers" element={<ManagementTeachers />} />
         <Route path="departments" element={<ManagementDepartments />} />
         <Route path="training-library" element={<TrainingLibraryView />} />
+        <Route path="profile" element={<Profile />} />
       </Route>
 
       <Route path="/admin" element={<ProtectedLayout allowedRoles={['admin']} title="Admin" />}>
@@ -56,6 +59,7 @@ function AppRoutes() {
         <Route path="users" element={<AdminUsers />} />
         <Route path="training-library" element={<AdminTrainingLibrary />} />
         <Route path="activity" element={<AdminActivity />} />
+        <Route path="profile" element={<Profile />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

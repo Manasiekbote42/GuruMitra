@@ -52,6 +52,8 @@ export const teacherUploadSession = (videoUrl, details = {}) =>
       grade_class: details.grade_class,
       date_of_recording: details.date_of_recording,
       department: details.department,
+      academic_plan_id: details.academic_plan_id,
+      chapter_index: details.chapter_index,
     })
     .then((r) => r.data);
 
@@ -64,6 +66,8 @@ export const teacherUploadSessionFile = (file, details = {}) => {
   if (details.grade_class != null) form.append('grade_class', details.grade_class);
   if (details.date_of_recording != null) form.append('date_of_recording', details.date_of_recording);
   if (details.department != null) form.append('department', details.department);
+  if (details.academic_plan_id != null) form.append('academic_plan_id', details.academic_plan_id);
+  if (details.chapter_index != null) form.append('chapter_index', String(details.chapter_index));
   return api
     .post('/api/teacher/sessions/upload', form, { headers: { 'Content-Type': undefined } })
     .then((r) => r.data);
@@ -152,5 +156,36 @@ export const adminTrainingLibraryUpdate = (id, formData) =>
   api.put(`/api/admin/training-library/${id}`, formData, { headers: { 'Content-Type': undefined } }).then((r) => r.data);
 export const adminTrainingLibraryDelete = (id) =>
   api.delete(`/api/admin/training-library/${id}`).then((r) => r.data);
+
+/** Admin: Academic Plan – list all and upload PDF (subject and class required). */
+export const adminAcademicPlanGet = () => api.get('/api/admin/academic-plan').then((r) => r.data);
+export const adminAcademicPlanUpload = (file, subject, planClass) => {
+  const form = new FormData();
+  form.append('pdf', file);
+  form.append('subject', subject);
+  form.append('class', planClass);
+  return api.post('/api/admin/academic-plan', form, { headers: { 'Content-Type': undefined } }).then((r) => r.data);
+};
+
+/** Teacher: Academic Plan – list all plans (uploaded by admin). */
+export const teacherAcademicPlanGet = () => api.get('/api/teacher/academic-plan').then((r) => r.data);
+
+/** Teacher: Chapters for a plan (from PDF); used by Video Analysis. */
+export const teacherGetChapters = (planId) =>
+  api.get(`/api/teacher/academic-plan/chapters/${planId}`).then((r) => r.data);
+
+/** Teacher: Sessions filtered by plan (and optional chapter) for Video Analysis. */
+export const teacherGetSessionsForPlan = (planId, chapterIndex = null) =>
+  api.get('/api/teacher/sessions', {
+    params: { plan_id: planId, ...(chapterIndex != null ? { chapter_index: chapterIndex } : {}) },
+  }).then((r) => r.data);
+
+/** Teacher: Mark chapter complete. */
+export const teacherChapterComplete = (planId, chapterIndex, completed) =>
+  api.post('/api/teacher/chapter-complete', { plan_id: planId, chapter_index: chapterIndex, completed }).then((r) => r.data);
+
+/** Teacher: Get chapter progress and pacing for a plan. */
+export const teacherGetChapterProgress = (planId) =>
+  api.get('/api/teacher/chapter-progress', { params: { plan_id: planId } }).then((r) => r.data);
 
 export default api;

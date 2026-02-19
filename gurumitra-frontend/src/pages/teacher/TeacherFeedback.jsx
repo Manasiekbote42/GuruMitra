@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import Card from '../../components/Card';
 import { teacherGetSessions, teacherGetFeedback, teacherGetScores } from '../../services/api';
 
 export default function TeacherFeedback() {
+  const location = useLocation();
   const [sessions, setSessions] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [feedback, setFeedback] = useState(null);
@@ -17,11 +19,13 @@ export default function TeacherFeedback() {
     teacherGetSessions()
       .then((s) => {
         setSessions(s);
-        if (s?.length) setSelectedId(s[0].id);
+        const fromState = location.state?.selectedSessionId;
+        if (fromState && s?.some((sess) => sess.id === fromState)) setSelectedId(fromState);
+        else if (s?.length) setSelectedId(s[0].id);
       })
       .catch(() => setSessions([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [location.state?.selectedSessionId]);
 
   useEffect(() => {
     if (!selectedId) {

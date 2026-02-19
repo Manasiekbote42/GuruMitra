@@ -13,7 +13,7 @@ export default function Profile() {
   useEffect(() => {
     if (user?.id) {
       getMe()
-        .then((me) => setProfileUser({ ...user, ...me }))
+        .then((me) => setProfileUser({ ...user, ...me, department: me.department ?? user.department ?? null }))
         .catch(() => setProfileUser(user))
         .finally(() => setLoading(false));
     } else {
@@ -54,6 +54,10 @@ export default function Profile() {
 
           {u?.role === 'teacher' && (
             <>
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-1">Department</h3>
+                <p className="text-sm text-gray-800">{u?.department || '—'}</p>
+              </div>
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-1">Subject(s) you teach</h3>
                 <p className="text-sm text-gray-800">

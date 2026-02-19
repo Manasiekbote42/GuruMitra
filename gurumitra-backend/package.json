@@ -12,13 +12,18 @@
     "db:migrate:training": "node src/db/migrate-training.js",
     "db:migrate:training-library": "node src/db/migrate-training-library.js",
     "db:migrate:teacher-profile": "node src/db/migrate-teacher-profile.js",
+    "db:migrate:video-analysis": "node src/db/migrate-video-analysis.js",
     "db:seed": "node src/db/seed.js",
     "db:seed:training": "node src/db/seed-training.js"
   },
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["gurumitra", "education", "teacher-feedback"],
+  "keywords": [
+    "gurumitra",
+    "education",
+    "teacher-feedback"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
@@ -26,8 +31,9 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
-    "multer": "^1.4.5-lts.1",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^1.1.1",
     "pg": "^8.13.0"
   }
 }

@@ -3,9 +3,13 @@ import bcrypt from 'bcryptjs';
 import { query } from '../config/db.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { audit } from '../services/auditLog.js';
+import adminAcademicPlanRoutes from './adminAcademicPlan.js';
 
 const router = express.Router();
 router.use(authenticate, requireRole('admin'));
+
+// Mount academic plan under /api/admin/academic-plan so it receives requests before fallthrough
+router.use('/academic-plan', adminAcademicPlanRoutes);
 
 // Add user (optional school_id for teacher/management)
 router.post('/users', async (req, res) => {

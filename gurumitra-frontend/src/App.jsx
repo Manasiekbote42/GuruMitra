@@ -8,6 +8,8 @@ import ResetPassword from './pages/ResetPassword';
 import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import TeacherUpload from './pages/teacher/TeacherUpload';
 import TeacherFeedback from './pages/teacher/TeacherFeedback';
+import TeacherAcademicPlan from './pages/teacher/TeacherAcademicPlan';
+import TeacherVideoAnalysis from './pages/teacher/TeacherVideoAnalysis';
 import ManagementDashboard from './pages/management/ManagementDashboard';
 import ManagementTeachers from './pages/management/ManagementTeachers';
 import ManagementDepartments from './pages/management/ManagementDepartments';
@@ -15,6 +17,7 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminActivity from './pages/admin/AdminActivity';
 import AdminTrainingLibrary from './pages/admin/AdminTrainingLibrary';
+import AdminAcademicPlan from './pages/admin/AdminAcademicPlan';
 import TrainingLibraryView from './pages/shared/TrainingLibraryView';
 import Profile from './pages/Profile';
 
@@ -41,8 +44,10 @@ function AppRoutes() {
       <Route path="/teacher" element={<ProtectedLayout allowedRoles={['teacher']} title="Teacher" />}>
         <Route path="dashboard" element={<TeacherDashboard />} />
         <Route path="upload" element={<TeacherUpload />} />
+        <Route path="video-analysis" element={<TeacherVideoAnalysis />} />
         <Route path="feedback" element={<TeacherFeedback />} />
         <Route path="training-library" element={<TrainingLibraryView />} />
+        <Route path="academic-plan" element={<TeacherAcademicPlan />} />
         <Route path="profile" element={<Profile />} />
       </Route>
 
@@ -57,6 +62,7 @@ function AppRoutes() {
       <Route path="/admin" element={<ProtectedLayout allowedRoles={['admin']} title="Admin" />}>
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="users" element={<AdminUsers />} />
+        <Route path="academic-plan" element={<AdminAcademicPlan />} />
         <Route path="training-library" element={<AdminTrainingLibrary />} />
         <Route path="activity" element={<AdminActivity />} />
         <Route path="profile" element={<Profile />} />

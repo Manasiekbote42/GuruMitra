@@ -4,8 +4,10 @@ const roleLinks = {
   teacher: [
     { to: '/teacher/dashboard', label: 'Dashboard', icon: '📊' },
     { to: '/teacher/upload', label: 'Upload Video', icon: '📤' },
+    { to: '/teacher/video-analysis', label: 'Video Analysis', icon: '🎬' },
     { to: '/teacher/feedback', label: 'Expert Feedback', icon: '💬' },
     { to: '/teacher/training-library', label: 'Training Library', icon: '📖' },
+    { to: '/teacher/academic-plan', label: 'Academic Plan', icon: '📅' },
   ],
   management: [
     { to: '/management/dashboard', label: 'Dashboard', icon: '📊' },
@@ -18,6 +20,7 @@ const roleLinks = {
     { to: '/admin/users', label: 'User Management', icon: '👤' },
     { to: '/admin/training-library', label: 'Training Library', icon: '📖' },
     { to: '/admin/activity', label: 'System Activity', icon: '📋' },
+    { to: '/admin/academic-plan', label: 'Academic Plan', icon: '📅' },
   ],
 };
 

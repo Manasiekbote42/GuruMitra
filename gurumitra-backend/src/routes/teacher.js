@@ -9,6 +9,8 @@ import { authenticate, requireRole } from '../middleware/auth.js';
 import { processSessionAsync } from '../services/aiProcessor.js';
 import { audit } from '../services/auditLog.js';
 import { computeContentHash, computeFileHash } from '../utils/contentHash.js';
+import { getPlans, getPlanFilePath, getPlanById, setPlanChapters } from '../services/academicPlanStore.js';
+import { extractChaptersFromPdf, isHolidayLine } from '../services/pdfChapters.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(path.dirname(__dirname), '..', 'uploads');
@@ -33,7 +35,7 @@ router.use(authenticate, requireRole('teacher'));
  */
 router.post('/sessions', async (req, res) => {
   try {
-    const { video_url, duration_seconds, speech_ratio, audio_energy, video_title, subject, grade_class, date_of_recording, department } = req.body;
+    const { video_url, duration_seconds, speech_ratio, audio_energy, video_title, subject, grade_class, date_of_recording, department, academic_plan_id, chapter_index } = req.body;
     const teacherId = req.user.id;
     const schoolId = req.user.school_id || (await query('SELECT school_id FROM users WHERE id = $1', [teacherId])).rows[0]?.school_id || null;
 
@@ -55,11 +57,13 @@ router.post('/sessions', async (req, res) => {
 
     const contentHash = computeContentHash(video_url || '', metadata);
 
+    const planId = academic_plan_id != null && String(academic_plan_id).trim() ? String(academic_plan_id).trim() : null;
+    const chIndex = chapter_index != null && Number.isInteger(Number(chapter_index)) ? Number(chapter_index) : null;
     const result = await query(
-      `INSERT INTO classroom_sessions (teacher_id, school_id, video_url, status, upload_metadata, content_hash)
-       VALUES ($1, $2, $3, 'processing', $4, $5)
-       RETURNING id, teacher_id, video_url, uploaded_at, status, created_at`,
-      [teacherId, schoolId, video_url || null, metadataJson, contentHash]
+      `INSERT INTO classroom_sessions (teacher_id, school_id, video_url, status, upload_metadata, content_hash, academic_plan_id, chapter_index)
+       VALUES ($1, $2, $3, 'processing', $4, $5, $6, $7)
+       RETURNING id, teacher_id, video_url, uploaded_at, status, created_at, academic_plan_id, chapter_index`,
+      [teacherId, schoolId, video_url || null, metadataJson, contentHash, planId, chIndex]
     );
     const session = result.rows[0];
 
@@ -88,7 +92,7 @@ router.post('/sessions/upload', upload.single('video'), async (req, res) => {
     const contentHash = computeFileHash(req.file.buffer);
     const videoUrl = `${BASE_URL}/api/teacher/session-file/${sessionId}`;
 
-    const { video_title, subject, grade_class, date_of_recording, department } = req.body || {};
+    const { video_title, subject, grade_class, date_of_recording, department, academic_plan_id, chapter_index } = req.body || {};
     // Update teacher's department in users table when provided (so management dashboard shows it)
     if (department !== undefined && department !== null && String(department).trim() !== '') {
       await query('UPDATE users SET department = $1, updated_at = NOW() WHERE id = $2', [String(department).trim(), teacherId]);
@@ -108,11 +112,13 @@ router.post('/sessions/upload', upload.single('video'), async (req, res) => {
     fs.writeFileSync(filePath, req.file.buffer);
 
     const schoolId = req.user.school_id || (await query('SELECT school_id FROM users WHERE id = $1', [teacherId])).rows[0]?.school_id || null;
+    const planId = academic_plan_id != null && String(academic_plan_id).trim() ? String(academic_plan_id).trim() : null;
+    const chIndex = chapter_index != null && Number.isInteger(Number(chapter_index)) ? Number(chapter_index) : null;
     const result = await query(
-      `INSERT INTO classroom_sessions (id, teacher_id, school_id, video_url, status, upload_metadata, content_hash)
-       VALUES ($1, $2, $3, $4, 'processing', $5, $6)
-       RETURNING id, teacher_id, video_url, uploaded_at, status, created_at`,
-      [sessionId, teacherId, schoolId, videoUrl, metadataJson, contentHash]
+      `INSERT INTO classroom_sessions (id, teacher_id, school_id, video_url, status, upload_metadata, content_hash, academic_plan_id, chapter_index)
+       VALUES ($1, $2, $3, $4, 'processing', $5, $6, $7, $8)
+       RETURNING id, teacher_id, video_url, uploaded_at, status, created_at, academic_plan_id, chapter_index`,
+      [sessionId, teacherId, schoolId, videoUrl, metadataJson, contentHash, planId, chIndex]
     );
     const session = result.rows[0];
 
@@ -354,19 +360,160 @@ router.get('/recommendations', async (req, res) => {
   }
 });
 
-/** List teacher's own sessions (single source of truth: DB only). Session history by created_at. */
+/** List teacher's own sessions (single source of truth: DB only). Session history by created_at. Optional: plan_id, chapter_index for Video Analysis. */
 router.get('/sessions', async (req, res) => {
   try {
-    const result = await query(
-      `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at
-       FROM classroom_sessions WHERE teacher_id = $1 ORDER BY created_at DESC`,
-      [req.user.id]
-    );
+    const planId = (req.query.plan_id || '').trim() || null;
+    const chapterIndex = req.query.chapter_index != null ? Number(req.query.chapter_index) : null;
+    let result;
+    if (planId) {
+      if (chapterIndex !== null && !Number.isNaN(chapterIndex)) {
+        result = await query(
+          `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index
+           FROM classroom_sessions WHERE teacher_id = $1 AND academic_plan_id = $2 AND chapter_index = $3 ORDER BY created_at DESC`,
+          [req.user.id, planId, chapterIndex]
+        );
+      } else {
+        result = await query(
+          `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index
+           FROM classroom_sessions WHERE teacher_id = $1 AND academic_plan_id = $2 ORDER BY created_at DESC`,
+          [req.user.id, planId]
+        );
+      }
+    } else {
+      result = await query(
+        `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index
+         FROM classroom_sessions WHERE teacher_id = $1 ORDER BY created_at DESC`,
+        [req.user.id]
+      );
+    }
     res.json(result.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch sessions' });
   }
+});
+
+/** Get chapters for a plan (parse PDF and cache in meta). Holidays are excluded. */
+router.get('/academic-plan/chapters/:planId', async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const plan = getPlanById(planId);
+    if (!plan) return res.status(404).json({ error: 'Academic plan not found' });
+    let chapters = Array.isArray(plan.chapters) ? plan.chapters : [];
+    if (chapters.length === 0) {
+      const filePath = getPlanFilePath(planId);
+      if (!filePath) return res.status(404).json({ error: 'Plan PDF not found' });
+      chapters = await extractChaptersFromPdf(filePath);
+      if (chapters.length > 0) setPlanChapters(planId, chapters);
+      else chapters = [];
+    }
+    chapters = chapters.filter((c) => !isHolidayLine(c));
+    if (chapters.length === 0 && Array.isArray(plan.chapters) && plan.chapters.length > 0) {
+      const filePath = getPlanFilePath(planId);
+      if (filePath) {
+        chapters = await extractChaptersFromPdf(filePath);
+        if (chapters.length > 0) setPlanChapters(planId, chapters);
+      }
+    }
+    res.json({ chapters });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to get chapters' });
+  }
+});
+
+/** Mark a chapter as completed (or uncompleted). Body: { plan_id, chapter_index, completed } */
+router.post('/chapter-complete', async (req, res) => {
+  try {
+    const { plan_id, chapter_index, completed } = req.body || {};
+    const planId = (plan_id != null && String(plan_id).trim()) ? String(plan_id).trim() : null;
+    const chIndex = chapter_index != null && Number.isInteger(Number(chapter_index)) ? Number(chapter_index) : null;
+    if (!planId || chIndex == null || Number.isNaN(chIndex)) {
+      return res.status(400).json({ error: 'plan_id and chapter_index are required' });
+    }
+    const teacherId = req.user.id;
+    await query(
+      `INSERT INTO teacher_chapter_progress (teacher_id, plan_id, chapter_index, completed, completed_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (teacher_id, plan_id, chapter_index)
+       DO UPDATE SET completed = $4, completed_at = $5`,
+      [teacherId, planId, chIndex, !!completed, completed ? new Date().toISOString() : null]
+    );
+    res.json({ ok: true, completed: !!completed });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update chapter progress' });
+  }
+});
+
+/** Get chapter progress for a plan (for pacing). */
+router.get('/chapter-progress', async (req, res) => {
+  try {
+    const planId = (req.query.plan_id || '').trim();
+    if (!planId) return res.status(400).json({ error: 'plan_id is required' });
+    let plan = getPlanById(planId);
+    if (!plan) return res.status(404).json({ error: 'Academic plan not found' });
+    let chapters = Array.isArray(plan.chapters) ? plan.chapters : [];
+    if (chapters.length === 0) {
+      const filePath = getPlanFilePath(planId);
+      if (filePath) {
+        chapters = await extractChaptersFromPdf(filePath);
+        if (chapters.length > 0) setPlanChapters(planId, chapters);
+      }
+    }
+    chapters = chapters.filter((c) => !isHolidayLine(c));
+    const result = await query(
+      `SELECT chapter_index, completed, completed_at FROM teacher_chapter_progress
+       WHERE teacher_id = $1 AND plan_id = $2`,
+      [req.user.id, planId]
+    );
+    const byChapter = {};
+    (result.rows || []).forEach((r) => {
+      byChapter[r.chapter_index] = { completed: r.completed, completed_at: r.completed_at };
+    });
+    const completedCount = Object.values(byChapter).filter((v) => v.completed).length;
+    const totalChapters = chapters.length || 1;
+    const paceMessage = totalChapters > 0
+      ? `You have completed ${completedCount} of ${totalChapters} chapters. ${completedCount >= totalChapters ? 'All chapters done!' : `Keep going — ${totalChapters - completedCount} remaining.`}`
+      : 'Select an academic plan to see your progress.';
+    res.json({
+      plan_id: planId,
+      chapters,
+      completedByChapter: byChapter,
+      completedCount,
+      totalChapters,
+      paceMessage,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch chapter progress' });
+  }
+});
+
+/** List all academic plans (uploaded by admin) for teachers to view. */
+router.get('/academic-plan', (req, res) => {
+  const plans = getPlans().map((p) => ({
+    id: p.id,
+    subject: p.subject,
+    class: p.class,
+    uploadedAt: p.uploadedAt,
+    uploadedByName: p.uploadedByName,
+    url: `/api/teacher/academic-plan/file/${p.id}`,
+  }));
+  res.json({ plans });
+});
+
+/** Serve an academic plan PDF by id (teacher only). */
+router.get('/academic-plan/file/:id', (req, res) => {
+  const filePath = getPlanFilePath(req.params.id);
+  if (!filePath) {
+    return res.status(404).json({ error: 'Academic plan not found' });
+  }
+  res.setHeader('Content-Type', 'application/pdf');
+  res.sendFile(filePath, (err) => {
+    if (err) res.status(500).json({ error: 'Error sending file' });
+  });
 });
 
 export default router;

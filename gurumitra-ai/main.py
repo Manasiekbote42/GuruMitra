@@ -111,6 +111,11 @@ def analyze(video_url: str = Body(..., embed=True), session_id: Optional[str] = 
                 status_code=500,
                 detail="ffmpeg not found. Install ffmpeg and add it to your system PATH, or set FFMPEG_PATH in gurumitra-ai/.env",
             )
+        if "yt-dlp" in err_msg and ("not available" in err_msg or "YouTube" in err_msg or "youtube" in err_msg):
+            raise HTTPException(
+                status_code=500,
+                detail="That YouTube video could not be used (it may be private, region-locked, or removed). Please upload a video file directly instead, or try a different link.",
+            )
         raise HTTPException(status_code=500, detail=err_msg)
     finally:
         if path and os.path.isfile(path):

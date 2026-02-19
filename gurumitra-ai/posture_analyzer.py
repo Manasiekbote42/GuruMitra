@@ -1,9 +1,23 @@
 import cv2
-import mediapipe as mp
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 import time
+from pathlib import Path
+
+# MediaPipe 0.10.31+ removed mp.solutions; require a version that has it
+try:
+    import mediapipe as mp
+    if not getattr(mp, "solutions", None):
+        raise AttributeError(
+            "mediapipe.solutions is missing. Your mediapipe version is too new. "
+            "Run: pip uninstall mediapipe -y && pip install mediapipe==0.10.21"
+        )
+except AttributeError:
+    raise
+
+# Default: write next to this file so the directory matches what main.py serves
+_DEFAULT_OUTPUT_DIR = str((Path(__file__).resolve().parent / "posture_outputs"))
 
 # Optional: YOLO for phone detection (graceful fallback if not installed)
 _phone_detector = None
@@ -59,8 +73,17 @@ class PostureAnalyzer:
             pass
         return False
 
-    def analyze_video(self, video_path, output_dir="posture_outputs"):
+    def analyze_video(self, video_path, output_dir=None):
+        if output_dir is None:
+            output_dir = _DEFAULT_OUTPUT_DIR
         cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return {
+                "error": "Could not open video file. Ensure the file is a valid video (e.g. MP4 with H.264) and not corrupted.",
+                "annotated_images": [],
+                "annotated_image_labels": [],
+                "heatmap": None,
+            }
         frame_count = 0
         slouch_frames = 0
         raised_shoulder_frames = 0
@@ -72,6 +95,7 @@ class PostureAnalyzer:
         gesture_count = 0
         spine_angles = []
         annotated_frames = []  # list of (path, issue_label) tuples
+        representative_frame_data = None  # (frame_bgr, pose_landmarks) to save when no issues found
         prev_landmarks = None
         # New metrics: eye contact, phone usage, reading vs explaining
         eye_contact_frames = 0
@@ -187,6 +211,10 @@ class PostureAnalyzer:
                     if self._has_phone_in_frame(frame):
                         phone_frames += 1
 
+                # Keep one representative frame (e.g. every 30th with pose) for "no issues" case
+                if representative_frame_data is None and frame_count % 30 == 0:
+                    representative_frame_data = (frame.copy(), results.pose_landmarks)
+
                 # Annotate and save up to 5 frames only when posture issue is CLEAR (stricter thresholds)
                 has_slouch = angle < SLOUCH_ANGLE_THRESHOLD
                 has_head_tilt = abs(head_tilt) > HEAD_TILT_THRESHOLD
@@ -208,6 +236,23 @@ class PostureAnalyzer:
                     annotated_frames.append((annotated_path, issue_label))
 
         cap.release()
+
+        if frame_count == 0:
+            return {
+                "error": "Video has no readable frames. The file may be corrupted or in an unsupported format (try MP4 with H.264).",
+                "annotated_images": [],
+                "annotated_image_labels": [],
+                "heatmap": None,
+            }
+
+        # If no issue frames were saved but we have pose in the video, save one representative frame so UI has an image
+        if not annotated_frames and representative_frame_data is not None:
+            rep_frame, rep_landmarks = representative_frame_data
+            rep_path = os.path.join(output_dir, "frame_representative.jpg")
+            self.draw_skeleton(rep_frame, rep_landmarks)
+            cv2.putText(rep_frame, "Posture analysis (no issues detected)", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 128, 0), 2)
+            cv2.imwrite(rep_path, rep_frame)
+            annotated_frames.append((rep_path, "Good posture"))
 
         slouch_percent = (slouch_frames / frame_count) * 100 if frame_count else 0
         raised_shoulder_percent = (raised_shoulder_frames / frame_count) * 100 if frame_count else 0
@@ -307,9 +352,10 @@ class PostureAnalyzer:
         # If no posture issues detected, provide a default feedback message
         if not feedback:
             feedback = ["No posture issues detected in the video."]
-        if not annotated_images_urls:
-            # Log for debugging
-            print("[PostureAnalyzer] No annotated frames found: no posture issues detected or video too short.")
+        if not annotated_frames:
+            if pose_detected_frames == 0:
+                feedback.append("Pose could not be detected. Ensure the teacher is clearly visible (full or upper body) in the frame for posture analysis.")
+            print("[PostureAnalyzer] No annotated frames: no posture issues detected, or pose not detected in video, or video too short.")
 
         return {
             "shoulder_tension_percent": raised_shoulder_percent,

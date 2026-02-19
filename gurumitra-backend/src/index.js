@@ -111,7 +111,16 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`GuruMitra backend running at http://localhost:${PORT}`);
   console.log('Health: http://localhost:' + PORT + '/health');
+});
+
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Stop the other process or set PORT to a different value in .env.`);
+    process.exit(1);
+  }
+  console.error('Server error:', err);
+  process.exit(1);
 });

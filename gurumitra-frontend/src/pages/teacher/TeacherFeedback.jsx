@@ -170,7 +170,12 @@ export default function TeacherFeedback() {
               </div>
               {feedback.posture_analysis && (
                 <Card title="Posture Analysis">
-                  {(() => {
+                  {feedback.posture_analysis.error && (
+                    <div className="rounded bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 text-sm">
+                      Posture analysis could not be completed: {feedback.posture_analysis.error}
+                    </div>
+                  )}
+                  {!feedback.posture_analysis.error && (() => {
                     const posture = feedback.posture_analysis || {};
                     const rawFeedback = posture.feedback || [];
                     // Simple split: lines starting with "Good" or "No " are treated as positive
@@ -247,7 +252,7 @@ export default function TeacherFeedback() {
                       </>
                     );
                   })()}
-                  {feedback.posture_analysis.recommendations && feedback.posture_analysis.recommendations.length > 0 && (
+                  {!feedback.posture_analysis.error && feedback.posture_analysis.recommendations && feedback.posture_analysis.recommendations.length > 0 && (
                     <div className="mt-4">
                       <p className="font-semibold text-sm text-gray-600">Recommendations:</p>
                       <ul className="list-disc list-inside text-sm text-gray-700">
@@ -257,7 +262,7 @@ export default function TeacherFeedback() {
                       </ul>
                     </div>
                   )}
-                  {feedback.posture_analysis.annotated_images && feedback.posture_analysis.annotated_images.length > 0 && (
+                  {!feedback.posture_analysis.error && feedback.posture_analysis.annotated_images && feedback.posture_analysis.annotated_images.length > 0 && (
                     <div className="mt-4">
                       <p className="font-semibold text-sm text-gray-600 mb-2">Posture Issue Snapshots:</p>
                       <p className="text-xs text-gray-500 mb-2">Click to enlarge. Each image shows the specific issue detected at that moment.</p>

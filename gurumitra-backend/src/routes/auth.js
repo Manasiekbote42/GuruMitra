@@ -25,7 +25,7 @@ function toArray(val) {
 // Sign up: name, email, password, role. No plain passwords stored.
 router.post('/signup', async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, role, subjects, classes } = req.body;
+    const { name, email, password, confirmPassword, role, subjects, classes, department } = req.body;
     const trimmedName = (name || '').trim();
     const trimmedEmail = (email || '').trim().toLowerCase();
 
@@ -51,9 +51,11 @@ router.post('/signup', async (req, res) => {
 
     const subjectsArr = role === 'teacher' ? toArray(subjects) : [];
     const classesArr = role === 'teacher' ? toArray(classes) : [];
+    const departmentVal = role === 'teacher' ? (department != null ? String(department).trim() : '') : null;
     if (role === 'teacher') {
       if (subjectsArr.length === 0) return res.status(400).json({ error: 'Please select at least one subject you teach' });
       if (classesArr.length === 0) return res.status(400).json({ error: 'Please select at least one class you teach' });
+      if (!departmentVal) return res.status(400).json({ error: 'Please select or enter your department' });
     }
 
     const existing = await query('SELECT id FROM users WHERE email = $1', [trimmedEmail]);
@@ -65,8 +67,8 @@ router.post('/signup', async (req, res) => {
     const defaultSchoolId = '00000000-0000-0000-0000-000000000001'; // Phase 5: assign default school for teacher/management
     const schoolId = role === 'admin' ? null : defaultSchoolId;
     await query(
-      `INSERT INTO users (name, email, password_hash, role, school_id, subjects, classes) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [trimmedName, trimmedEmail, passwordHash, role, schoolId, subjectsArr, classesArr]
+      `INSERT INTO users (name, email, password_hash, role, school_id, subjects, classes, department) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [trimmedName, trimmedEmail, passwordHash, role, schoolId, subjectsArr, classesArr, role === 'teacher' ? departmentVal : null]
     );
 
     res.status(201).json({ message: 'Account created. You can sign in now.' });
@@ -146,14 +148,20 @@ router.get('/me', authenticate, async (req, res) => {
       'SELECT id, name, email, role, department, school_id, subjects, classes, created_at FROM users WHERE id = $1',
       [req.user.id]
     );
-    const user = result.rows[0];
-    if (!user) {
+    const row = result.rows[0];
+    if (!row) {
       return res.status(404).json({ error: 'User not found' });
     }
     res.json({
-      ...user,
-      subjects: toArray(user.subjects),
-      classes: toArray(user.classes),
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      department: row.department ?? null,
+      school_id: row.school_id ?? null,
+      subjects: toArray(row.subjects),
+      classes: toArray(row.classes),
+      created_at: row.created_at,
     });
   } catch (err) {
     console.error(err);

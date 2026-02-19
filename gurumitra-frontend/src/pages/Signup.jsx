@@ -8,9 +8,11 @@ const ROLES = [
   { value: 'admin', label: 'Admin' },
 ];
 
-const SUBJECTS = ['Mathematics', 'Science', 'English', 'Hindi', 'Social Studies', 'Physics', 'Chemistry', 'Biology', 'History', 'Geography', 'Economics', 'Computer Science', 'Physical Education', 'Art', 'Music'];
+const SUBJECTS = ['Mathematics', 'English', 'Hindi', 'Physics', 'Chemistry', 'Biology', 'History', 'Geography', 'Civics/Government', 'Economics', 'Sociology', 'Anthropology', 'Psychology', 'Computer Science', 'Physical Education', 'Art', 'Music'];
 
 const CLASSES = Array.from({ length: 10 }, (_, i) => `Class ${i + 1}`);
+
+const DEPARTMENTS = ['Mathematics', 'Science', 'Languages', 'Humanities', 'Social Sciences', 'Computer Science', 'Physical Education', 'Arts', 'Administration', 'Other'];
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -31,6 +33,8 @@ export default function Signup() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [subjects, setSubjects] = useState([]);
   const [classes, setClasses] = useState([]);
+  const [department, setDepartment] = useState('');
+  const [departmentOther, setDepartmentOther] = useState('');
   const [terms, setTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -59,6 +63,11 @@ export default function Signup() {
     }
     if (role === 'teacher' && classes.length === 0) {
       setError('Please select at least one class you teach');
+      return;
+    }
+    const departmentValue = department === 'Other' ? departmentOther.trim() : department.trim();
+    if (role === 'teacher' && !departmentValue) {
+      setError(department === 'Other' ? 'Please enter your department.' : 'Please select your department.');
       return;
     }
     if (!name.trim()) {
@@ -97,6 +106,7 @@ export default function Signup() {
         role,
         subjects: role === 'teacher' ? subjects : undefined,
         classes: role === 'teacher' ? classes : undefined,
+        department: role === 'teacher' ? (department === 'Other' ? departmentOther.trim() : department) : undefined,
       });
       navigate('/login', { state: { message: 'Account created. You can sign in now.' } });
     } catch (err) {
@@ -136,7 +146,7 @@ export default function Signup() {
                       name="role"
                       value={r.value}
                       checked={role === r.value}
-                      onChange={() => { setRole(r.value); setSubjects([]); setClasses([]); }}
+                      onChange={() => { setRole(r.value); setSubjects([]); setClasses([]); setDepartment(''); setDepartmentOther(''); }}
                       className="rounded-full border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm text-gray-700">{r.label}</span>
@@ -147,6 +157,28 @@ export default function Signup() {
 
             {role === 'teacher' && (
               <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Department</label>
+                  <select
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                  >
+                    <option value="">Select department</option>
+                    {DEPARTMENTS.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                  {department === 'Other' && (
+                    <input
+                      type="text"
+                      value={departmentOther}
+                      onChange={(e) => setDepartmentOther(e.target.value)}
+                      placeholder="Enter your department"
+                      className="mt-2 w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+                    />
+                  )}
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Subjects you teach (select all that apply)</label>
                   <div className="flex flex-wrap gap-2">

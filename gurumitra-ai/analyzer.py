@@ -792,11 +792,20 @@ def run_analysis(video_path: str, session_id: Optional[str] = None) -> dict:
     MIN_TRANSCRIPT_WORDS = 25
     word_count = len(transcript.split()) if transcript else 0
     if not transcript or word_count < MIN_TRANSCRIPT_WORDS:
-        warning = (
-            "Empty transcript. No scores generated."
-            if not transcript
-            else f"Insufficient transcript ({word_count} words). Video must be fully transcribed for analysis. Please use a clearer recording or longer session (minimum ~{MIN_TRANSCRIPT_WORDS} words)."
-        )
+        if duration_seconds < 1:
+            warning = (
+                "No audio track or silent video. Ensure the recording has clear speech and the file includes an audio track."
+            )
+        elif not transcript:
+            warning = (
+                "No speech detected. Possible causes: video has no audible speech, very low volume, or language/format "
+                "Whisper could not transcribe. Use a video with clear spoken teaching (minimum ~25 words) and try again."
+            )
+        else:
+            warning = (
+                f"Insufficient transcript ({word_count} words). Video must be fully transcribed for analysis. "
+                f"Please use a clearer recording or longer session (minimum ~{MIN_TRANSCRIPT_WORDS} words)."
+            )
         return {
             "warning": warning,
             "session_id": session_id,
@@ -880,7 +889,12 @@ def run_analysis(video_path: str, session_id: Optional[str] = None) -> dict:
         from posture_analyzer import PostureAnalyzer
         posture_analyzer = PostureAnalyzer()
         posture_results = posture_analyzer.analyze_video(video_path)
+        if posture_results.get("error"):
+            import sys
+            print("[Posture] Analysis returned error:", posture_results["error"], file=sys.stderr)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         posture_results = {"error": str(e)}
 
     out = build_session_output(

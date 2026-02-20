@@ -231,12 +231,14 @@ router.get('/sessions/:sessionId/feedback', async (req, res) => {
       postureAnalysis = { ...postureAnalysis };
       if (Array.isArray(postureAnalysis.annotated_images)) {
         postureAnalysis.annotated_images = postureAnalysis.annotated_images.map((url) => {
-          const filename = typeof url === 'string' ? url.split('/').pop() : null;
+          const raw = typeof url === 'string' ? url.split('/').pop() : null;
+          const filename = raw ? raw.split('?')[0] : null; // strip query for proxy
           return filename ? `${apiBase}/api/ai/posture-outputs/${filename}` : url;
         });
       }
       if (postureAnalysis.heatmap) {
-        const hmFilename = String(postureAnalysis.heatmap).split('/').pop();
+        const raw = String(postureAnalysis.heatmap).split('/').pop();
+        const hmFilename = raw ? raw.split('?')[0] : null;
         if (hmFilename) postureAnalysis.heatmap = `${apiBase}/api/ai/posture-outputs/${hmFilename}`;
       }
     }
@@ -448,6 +450,7 @@ router.get('/video-feedback/:videoId', async (req, res) => {
       let chapters = plan && Array.isArray(plan.chapters) ? plan.chapters : [];
       const fallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
       if ((chapters.length === 0 || fallbackOnly) && plan) {
+      if (chapters.length === 0 && plan) {
         const filePath = getPlanFilePath(planId);
         if (filePath) {
           try {
@@ -459,6 +462,7 @@ router.get('/video-feedback/:videoId', async (req, res) => {
       }
       chapters = chapters.filter((c) => !isHolidayLine(c));
       const totalChapters = chapters.length;
+      const totalChapters = chapters.length || 1;
       const completedCount = progResult.rows.filter((r) => r.completed).length;
       const currentChapter = chapterIndex + 1;
       const status = completedCount >= totalChapters ? 'All chapters done' : (completedCount >= currentChapter ? 'On track' : 'In progress');

@@ -8,7 +8,8 @@ import http from 'http';
 import https from 'https';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-const TIMEOUT_MS = Number(process.env.AI_SERVICE_TIMEOUT_MS) || 600000; // 10 min (download + Whisper + Gemini)
+// Download + Whisper + content + posture; long or high-res videos need more time
+const TIMEOUT_MS = Number(process.env.AI_SERVICE_TIMEOUT_MS) || 1800000; // 30 min default
 
 /**
  * Call analyzer service (Whisper + audio + content). Optional session_id for session-level response.
@@ -46,7 +47,14 @@ export function analyzeVideo(videoUrl, sessionId = null) {
         clearTimeout(timer);
         const raw = Buffer.concat(chunks).toString('utf8');
         if (res.statusCode !== 200) {
-          reject(new Error(`AI service error ${res.statusCode}: ${raw}`));
+          let msg = `AI service error ${res.statusCode}: ${raw}`;
+          try {
+            const body = JSON.parse(raw);
+            if (body && typeof body.detail === 'string' && body.detail.trim()) {
+              msg = body.detail.trim();
+            }
+          } catch (_) {}
+          reject(new Error(msg));
           return;
         }
         try {
@@ -66,11 +74,13 @@ export function analyzeVideo(videoUrl, sessionId = null) {
     });
     const timer = setTimeout(() => {
       req.destroy();
-      reject(new Error('AI service timeout'));
+      const mins = Math.round(TIMEOUT_MS / 60000);
+      reject(new Error(`AI service timeout (no response after ${mins} min). Try a shorter video or set AI_SERVICE_TIMEOUT_MS in backend .env to a higher value (e.g. 3600000 for 60 min).`));
     }, TIMEOUT_MS);
     req.setTimeout(TIMEOUT_MS, () => {
       req.destroy();
-      reject(new Error('AI service timeout'));
+      const mins = Math.round(TIMEOUT_MS / 60000);
+      reject(new Error(`AI service timeout (no response after ${mins} min). Try a shorter video or set AI_SERVICE_TIMEOUT_MS in backend .env to a higher value (e.g. 3600000 for 60 min).`));
     });
     req.write(bodyStr);
     req.end();

@@ -84,6 +84,10 @@ export const teacherGetFeedback = (sessionId) =>
 export const teacherGetScores = (sessionId) =>
   api.get(`/api/teacher/sessions/${sessionId}/scores`).then((r) => r.data);
 
+/** Complete video feedback for Syllabus/Plan (teaching, posture, syllabus pacing). videoId = session id. */
+export const teacherGetVideoFeedback = (videoId) =>
+  api.get(`/api/teacher/video-feedback/${videoId}`).then((r) => r.data);
+
 export const teacherGetRecommendations = () =>
   api.get('/api/teacher/recommendations').then((r) => r.data);
 

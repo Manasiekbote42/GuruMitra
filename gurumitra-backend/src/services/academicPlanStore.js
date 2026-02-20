@@ -119,3 +119,39 @@ export function setPlanChapters(planId, chapters) {
     fs.writeFileSync(META_FILE, JSON.stringify(data, null, 2));
   }
 }
+
+/**
+ * Remove a plan: delete the PDF file and remove from meta.
+ * @param { string } planId
+ * @returns { boolean } true if removed, false if plan not found
+ */
+export function removePlan(planId) {
+  const id = (planId != null ? String(planId) : '').trim();
+  if (!id) return false;
+  ensureDir();
+  const plans = getPlans();
+  let plan = plans.find((p) => (p.id != null ? String(p.id) : '').trim() === id);
+  if (!plan) {
+    plan = plans.find((p) => (p.filename != null ? String(p.filename) : '') === id || (p.filename != null ? String(p.filename).replace(/\.pdf$/i, '') : '') === id);
+  }
+  if (!plan) return false;
+  const planIdStored = (plan.id != null ? String(plan.id) : '').trim();
+  const filePath = path.join(ACADEMIC_PLAN_DIR, plan.filename || (id.endsWith('.pdf') ? id : `${id}.pdf`));
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch (err) {
+      console.error('Failed to delete academic plan file:', err);
+    }
+  }
+  const updated = plans.filter((p) => (p.id != null ? String(p.id) : '').trim() !== planIdStored);
+  let data = { plans: [] };
+  try {
+    if (fs.existsSync(META_FILE)) {
+      data = JSON.parse(fs.readFileSync(META_FILE, 'utf8'));
+    }
+  } catch (_) {}
+  data.plans = updated;
+  fs.writeFileSync(META_FILE, JSON.stringify(data, null, 2));
+  return true;
+}

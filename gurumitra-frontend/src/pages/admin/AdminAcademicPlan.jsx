@@ -3,6 +3,7 @@ import Card from '../../components/Card';
 import {
   adminAcademicPlanGet,
   adminAcademicPlanUpload,
+  adminAcademicPlanDelete,
 } from '../../services/api';
 import api from '../../services/api';
 
@@ -20,6 +21,8 @@ export default function AdminAcademicPlan() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [viewingId, setViewingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [deleteError, setDeleteError] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -68,6 +71,25 @@ export default function AdminAcademicPlan() {
       .then((res) => res?.data && window.open(URL.createObjectURL(res.data), '_blank', 'noopener'))
       .catch(() => {})
       .finally(() => setViewingId(null));
+  };
+
+  const handleDelete = async (p) => {
+    if (!window.confirm(`Delete "${p.subject} · ${p.class}"? This will remove the PDF and cannot be undone.`)) return;
+    const planId = p.id != null ? String(p.id).trim() : '';
+    if (!planId) {
+      setDeleteError('Invalid plan');
+      return;
+    }
+    setDeleteError('');
+    setDeletingId(planId);
+    try {
+      await adminAcademicPlanDelete(planId);
+      load();
+    } catch (err) {
+      setDeleteError(err.response?.data?.error || 'Failed to delete plan');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   if (loading && plans.length === 0) {
@@ -169,6 +191,9 @@ export default function AdminAcademicPlan() {
         {plans.length > 0 && (
           <div className="mt-6 pt-6 border-t border-gray-200">
             <h3 className="text-base font-semibold text-gray-800 mb-3">Uploaded plans</h3>
+            {deleteError && (
+              <p className="mb-2 text-sm text-red-600" role="alert">{deleteError}</p>
+            )}
             <ul className="space-y-2">
               {plans.map((p) => (
                 <li key={p.id} className="flex flex-wrap items-center gap-3 py-2 border-b border-gray-100 last:border-0">
@@ -184,6 +209,14 @@ export default function AdminAcademicPlan() {
                     className="text-sm font-medium text-primary-600 hover:text-primary-700 disabled:opacity-50"
                   >
                     {viewingId === p.id ? 'Opening…' : 'View / download PDF'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(p)}
+                    disabled={deletingId === p.id}
+                    className="text-sm font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
+                  >
+                    {deletingId === p.id ? 'Deleting…' : 'Delete'}
                   </button>
                 </li>
               ))}

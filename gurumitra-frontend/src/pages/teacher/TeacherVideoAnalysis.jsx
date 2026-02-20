@@ -44,6 +44,7 @@ export default function TeacherVideoAnalysis() {
       setChapters([]);
       setProgress(null);
       setSessionsByChapter({});
+      setOpenUploadChapter(null);
       return;
     }
     setLoadingChapters(true);
@@ -63,6 +64,7 @@ export default function TeacherVideoAnalysis() {
           });
         });
         if (chList.length === 0) setSessionsByChapter({});
+        else setOpenUploadChapter(0);
       })
       .catch(() => {
         setChapters([]);
@@ -157,7 +159,7 @@ export default function TeacherVideoAnalysis() {
     <div className="space-y-6">
       <Card title="Video Analysis">
         <p className="text-sm text-gray-600 mb-4">
-          Choose an academic plan below. Each chapter has its own section: upload videos, view analysis, and mark the chapter complete. Your progress and pacing are shown.
+          Choose an academic plan below. Chapters from the plan PDF appear here. For each chapter you can upload a video or paste a link to get AI analysis and feedback. Your progress and pacing are shown.
         </p>
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-1">Academic plan</label>
@@ -213,7 +215,7 @@ export default function TeacherVideoAnalysis() {
               <div className="mb-4">
                 <p className="text-sm font-medium text-gray-700 mb-2">Videos for this chapter</p>
                 {sessions.length === 0 ? (
-                  <p className="text-sm text-gray-500">No videos uploaded yet.</p>
+                  <p className="text-sm text-gray-500 mb-2">No videos yet. Upload a video or paste a link below to get AI analysis and feedback.</p>
                 ) : (
                   <ul className="space-y-2">
                     {sessions.map((s) => (
@@ -229,7 +231,7 @@ export default function TeacherVideoAnalysis() {
                   onClick={() => setOpenUploadChapter(openUploadChapter === chapterIndex ? null : chapterIndex)}
                   className="w-full px-3 py-2.5 text-left text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 flex items-center justify-between"
                 >
-                  Add video
+                  {sessions.length === 0 ? 'Upload video or paste link' : 'Add another video'}
                   <span className="text-primary-600">{openUploadChapter === chapterIndex ? '▼' : '▶'}</span>
                 </button>
                 {openUploadChapter === chapterIndex && (

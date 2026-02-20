@@ -166,6 +166,8 @@ export const adminAcademicPlanUpload = (file, subject, planClass) => {
   form.append('class', planClass);
   return api.post('/api/admin/academic-plan', form, { headers: { 'Content-Type': undefined } }).then((r) => r.data);
 };
+export const adminAcademicPlanDelete = (planId) =>
+  api.delete(`/api/admin/academic-plan/${encodeURIComponent(String(planId))}`);
 
 /** Teacher: Academic Plan – list all plans (uploaded by admin). */
 export const teacherAcademicPlanGet = () => api.get('/api/teacher/academic-plan').then((r) => r.data);

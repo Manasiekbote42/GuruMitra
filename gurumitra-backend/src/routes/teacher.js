@@ -10,7 +10,7 @@ import { processSessionAsync } from '../services/aiProcessor.js';
 import { audit } from '../services/auditLog.js';
 import { computeContentHash, computeFileHash } from '../utils/contentHash.js';
 import { getPlans, getPlanFilePath, getPlanById, setPlanChapters } from '../services/academicPlanStore.js';
-import { extractChaptersFromPdf, isHolidayLine } from '../services/pdfChapters.js';
+import { extractChaptersFromPdf, isHolidayLine, isMetadataOrHolidayLine } from '../services/pdfChapters.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(path.dirname(__dirname), '..', 'uploads');
@@ -360,6 +360,154 @@ router.get('/recommendations', async (req, res) => {
   }
 });
 
+/**
+ * Get complete video feedback for Syllabus/Plan (per-video, same quality as Expert Feedback).
+ * videoId = session id. Returns teaching_feedback, posture_feedback, syllabus_pacing_feedback, strengths, improvements, score.
+ */
+router.get('/video-feedback/:videoId', async (req, res) => {
+  try {
+    const videoId = req.params.videoId;
+    const teacherId = req.user.id;
+
+    const sessionResult = await query(
+      `SELECT id, status, error_message, analysis_result, academic_plan_id, chapter_index, created_at, uploaded_at
+       FROM classroom_sessions WHERE id = $1 AND teacher_id = $2`,
+      [videoId, teacherId]
+    );
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    const session = sessionResult.rows[0];
+
+    if (session.status === 'processing' || session.status === 'pending') {
+      return res.status(200).json({
+        status: 'processing',
+        message: 'AI analysis in progress',
+        video_id: videoId,
+        created_at: session.created_at,
+      });
+    }
+    if (session.status === 'failed') {
+      return res.status(200).json({
+        status: 'failed',
+        video_id: videoId,
+        error_message: session.error_message || null,
+        created_at: session.created_at,
+      });
+    }
+
+    const [feedbackResult, scoresResult] = await Promise.all([
+      query('SELECT session_id, strengths, improvements, recommendations, created_at FROM feedback WHERE session_id = $1', [videoId]),
+      query('SELECT clarity_score, engagement_score, interaction_score, overall_score FROM scores WHERE session_id = $1', [videoId]),
+    ]);
+    const feedbackRow = feedbackResult.rows[0];
+    const scoresRow = scoresResult.rows[0];
+    if (!feedbackRow || !scoresRow) {
+      return res.status(200).json({
+        status: 'processing',
+        message: 'AI analysis in progress',
+        video_id: videoId,
+        created_at: session.created_at,
+      });
+    }
+
+    const analysisResult = session.analysis_result && typeof session.analysis_result === 'object' ? session.analysis_result : null;
+    let postureAnalysis = analysisResult && typeof analysisResult.posture_analysis === 'object' ? analysisResult.posture_analysis : null;
+    const semanticFeedback = analysisResult && typeof analysisResult.semantic_feedback === 'object' ? analysisResult.semantic_feedback : null;
+
+    if (postureAnalysis) {
+      const apiBase = `${req.protocol}://${req.get('host')}`;
+      postureAnalysis = { ...postureAnalysis };
+      if (Array.isArray(postureAnalysis.annotated_images)) {
+        postureAnalysis.annotated_images = postureAnalysis.annotated_images.map((url) => {
+          const raw = typeof url === 'string' ? url.split('/').pop() : null;
+          const filename = raw ? raw.split('?')[0] : null;
+          return filename ? `${apiBase}/api/ai/posture-outputs/${filename}` : url;
+        });
+      }
+      if (postureAnalysis.heatmap) {
+        const raw = String(postureAnalysis.heatmap).split('/').pop();
+        const hmFilename = raw ? raw.split('?')[0] : null;
+        if (hmFilename) postureAnalysis.heatmap = `${apiBase}/api/ai/posture-outputs/${hmFilename}`;
+      }
+    }
+
+    let chapterName = null;
+    let syllabusPacingFeedback = null;
+    const planId = session.academic_plan_id;
+    const chapterIndex = session.chapter_index;
+    if (planId != null && chapterIndex != null) {
+      const plan = getPlanById(planId);
+      if (plan && Array.isArray(plan.chapters) && plan.chapters[chapterIndex]) {
+        chapterName = plan.chapters[chapterIndex];
+      }
+      const progResult = await query(
+        `SELECT chapter_index, completed FROM teacher_chapter_progress WHERE teacher_id = $1 AND plan_id = $2`,
+        [teacherId, planId]
+      );
+      let chapters = plan && Array.isArray(plan.chapters) ? plan.chapters : [];
+      const fallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
+      if ((chapters.length === 0 || fallbackOnly) && plan) {
+        const filePath = getPlanFilePath(planId);
+        if (filePath) {
+          try {
+            chapters = await extractChaptersFromPdf(filePath);
+            chapters = chapters.filter((c) => !isHolidayLine(c));
+            if (chapters.length > 0) setPlanChapters(planId, chapters);
+          } catch (_) {}
+        }
+      }
+      chapters = chapters.filter((c) => !isHolidayLine(c));
+      const totalChapters = chapters.length;
+      const completedCount = progResult.rows.filter((r) => r.completed).length;
+      const currentChapter = chapterIndex + 1;
+      const status = completedCount >= totalChapters ? 'All chapters done' : (completedCount >= currentChapter ? 'On track' : 'In progress');
+      syllabusPacingFeedback = {
+        status,
+        chapter_x_of_y: `Chapter ${currentChapter} of ${totalChapters}`,
+        completed_count: completedCount,
+        total_chapters: totalChapters,
+        message: totalChapters > 0
+          ? `You have completed ${completedCount} of ${totalChapters} chapters. ${completedCount >= totalChapters ? 'All chapters done!' : `Keep going — ${totalChapters - completedCount} remaining.`}`
+          : 'Syllabus progress not available.',
+      };
+    }
+
+    const strengths = feedbackRow.strengths ? feedbackRow.strengths.split('\n').filter(Boolean) : [];
+    const improvements = feedbackRow.improvements ? feedbackRow.improvements.split('\n').filter(Boolean) : [];
+    const recommendations = feedbackRow.recommendations ? feedbackRow.recommendations.split('\n').filter(Boolean) : [];
+    const teachingFeedback = { strengths, improvements, recommendations };
+    const postureFeedback = postureAnalysis
+      ? (Array.isArray(postureAnalysis.feedback) ? postureAnalysis.feedback : []) || []
+      : [];
+
+    audit(teacherId, 'teacher', 'video_feedback_view', 'session', videoId, req.user.school_id);
+
+    res.json({
+      video_id: videoId,
+      chapter_name: chapterName,
+      teaching_feedback: teachingFeedback,
+      posture_feedback: postureFeedback,
+      posture_analysis: postureAnalysis,
+      syllabus_pacing_feedback: syllabusPacingFeedback,
+      strengths,
+      improvements,
+      recommendations,
+      score: scoresRow.overall_score != null ? Number(scoresRow.overall_score) : null,
+      clarity_score: scoresRow.clarity_score,
+      engagement_score: scoresRow.engagement_score,
+      interaction_score: scoresRow.interaction_score,
+      semantic_feedback: semanticFeedback,
+      created_at: session.created_at,
+      uploaded_at: session.uploaded_at || session.created_at,
+      generated_at: feedbackRow.created_at,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch video feedback' });
+  }
+});
+
 /** List teacher's own sessions (single source of truth: DB only). Session history by created_at. Optional: plan_id, chapter_index for Video Analysis. */
 router.get('/sessions', async (req, res) => {
   try {
@@ -394,25 +542,37 @@ router.get('/sessions', async (req, res) => {
   }
 });
 
-/** Get chapters for a plan (parse PDF and cache in meta). Holidays are excluded. */
+/** Get chapters for a plan (parse PDF and cache in meta). Only real chapters from the planning table; holidays are never returned. */
 router.get('/academic-plan/chapters/:planId', async (req, res) => {
   try {
     const { planId } = req.params;
     const plan = getPlanById(planId);
     if (!plan) return res.status(404).json({ error: 'Academic plan not found' });
+    const filePath = getPlanFilePath(planId);
+    if (!filePath) return res.status(404).json({ error: 'Plan PDF not found' });
+
     let chapters = Array.isArray(plan.chapters) ? plan.chapters : [];
-    if (chapters.length === 0) {
-      const filePath = getPlanFilePath(planId);
-      if (!filePath) return res.status(404).json({ error: 'Plan PDF not found' });
-      chapters = await extractChaptersFromPdf(filePath);
-      if (chapters.length > 0) setPlanChapters(planId, chapters);
-      else chapters = [];
-    }
-    chapters = chapters.filter((c) => !isHolidayLine(c));
-    if (chapters.length === 0 && Array.isArray(plan.chapters) && plan.chapters.length > 0) {
-      const filePath = getPlanFilePath(planId);
-      if (filePath) {
+    const hasInvalidCache = chapters.some((c) => isMetadataOrHolidayLine(c));
+    const hasFallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
+    if (hasInvalidCache || chapters.length === 0 || hasFallbackOnly) {
+      if (hasInvalidCache) setPlanChapters(planId, []); // clear bad cache so we don't reuse it
+      try {
         chapters = await extractChaptersFromPdf(filePath);
+      } catch (parseErr) {
+        console.error('PDF chapter extraction failed:', parseErr);
+        chapters = [];
+      }
+      chapters = chapters.filter((c) => !isHolidayLine(c));
+      if (chapters.length > 0) setPlanChapters(planId, chapters);
+    } else {
+      chapters = chapters.filter((c) => !isHolidayLine(c));
+      if (chapters.length === 0) {
+        try {
+          chapters = await extractChaptersFromPdf(filePath);
+        } catch (_) {
+          chapters = [];
+        }
+        chapters = chapters.filter((c) => !isHolidayLine(c));
         if (chapters.length > 0) setPlanChapters(planId, chapters);
       }
     }
@@ -455,14 +615,23 @@ router.get('/chapter-progress', async (req, res) => {
     let plan = getPlanById(planId);
     if (!plan) return res.status(404).json({ error: 'Academic plan not found' });
     let chapters = Array.isArray(plan.chapters) ? plan.chapters : [];
-    if (chapters.length === 0) {
+    const hasInvalidCache = chapters.some((c) => isMetadataOrHolidayLine(c));
+    const hasFallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
+    if (hasInvalidCache || chapters.length === 0 || hasFallbackOnly) {
       const filePath = getPlanFilePath(planId);
       if (filePath) {
-        chapters = await extractChaptersFromPdf(filePath);
+        if (hasInvalidCache) setPlanChapters(planId, []);
+        try {
+          chapters = await extractChaptersFromPdf(filePath);
+        } catch (_) {
+          chapters = [];
+        }
+        chapters = chapters.filter((c) => !isHolidayLine(c));
         if (chapters.length > 0) setPlanChapters(planId, chapters);
       }
+    } else {
+      chapters = chapters.filter((c) => !isHolidayLine(c));
     }
-    chapters = chapters.filter((c) => !isHolidayLine(c));
     const result = await query(
       `SELECT chapter_index, completed, completed_at FROM teacher_chapter_progress
        WHERE teacher_id = $1 AND plan_id = $2`,
@@ -473,7 +642,7 @@ router.get('/chapter-progress', async (req, res) => {
       byChapter[r.chapter_index] = { completed: r.completed, completed_at: r.completed_at };
     });
     const completedCount = Object.values(byChapter).filter((v) => v.completed).length;
-    const totalChapters = chapters.length || 1;
+    const totalChapters = chapters.length;
     const paceMessage = totalChapters > 0
       ? `You have completed ${completedCount} of ${totalChapters} chapters. ${completedCount >= totalChapters ? 'All chapters done!' : `Keep going — ${totalChapters - completedCount} remaining.`}`
       : 'Select an academic plan to see your progress.';

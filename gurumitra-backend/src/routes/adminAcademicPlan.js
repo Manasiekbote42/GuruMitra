@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { audit } from '../services/auditLog.js';
-import { getPlans, addPlan, getPlanFilePath, ACADEMIC_PLAN_DIR } from '../services/academicPlanStore.js';
+import { getPlans, addPlan, getPlanFilePath, removePlan, ACADEMIC_PLAN_DIR } from '../services/academicPlanStore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(path.dirname(__dirname), '..', 'uploads');
@@ -76,6 +76,23 @@ router.get('/file/:id', (req, res) => {
   res.sendFile(filePath, (err) => {
     if (err) res.status(500).json({ error: 'Error sending file' });
   });
+});
+
+/**
+ * DELETE /api/admin/academic-plan/:id - Delete an uploaded plan (PDF + meta entry).
+ */
+router.delete('/:id', (req, res) => {
+  try {
+    const id = (req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'Plan id is required' });
+    const removed = removePlan(id);
+    if (!removed) return res.status(404).json({ error: 'Academic plan not found' });
+    audit(req.user.id, 'admin', 'academic_plan_deleted', 'academic_plan', id, req.user.school_id);
+    res.status(204).send();
+  } catch (err) {
+    console.error('Academic plan delete error:', err);
+    res.status(500).json({ error: 'Failed to delete academic plan' });
+  }
 });
 
 export default router;

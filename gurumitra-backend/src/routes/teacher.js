@@ -10,7 +10,7 @@ import { processSessionAsync } from '../services/aiProcessor.js';
 import { audit } from '../services/auditLog.js';
 import { computeContentHash, computeFileHash } from '../utils/contentHash.js';
 import { getPlans, getPlanFilePath, getPlanById, setPlanChapters } from '../services/academicPlanStore.js';
-import { extractChaptersFromPdf, isHolidayLine } from '../services/pdfChapters.js';
+import { extractChaptersFromPdf, isHolidayLine, isMetadataOrHolidayLine } from '../services/pdfChapters.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(path.dirname(__dirname), '..', 'uploads');
@@ -448,16 +448,20 @@ router.get('/video-feedback/:videoId', async (req, res) => {
         [teacherId, planId]
       );
       let chapters = plan && Array.isArray(plan.chapters) ? plan.chapters : [];
+      const fallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
+      if ((chapters.length === 0 || fallbackOnly) && plan) {
       if (chapters.length === 0 && plan) {
         const filePath = getPlanFilePath(planId);
         if (filePath) {
           try {
             chapters = await extractChaptersFromPdf(filePath);
+            chapters = chapters.filter((c) => !isHolidayLine(c));
             if (chapters.length > 0) setPlanChapters(planId, chapters);
           } catch (_) {}
         }
       }
       chapters = chapters.filter((c) => !isHolidayLine(c));
+      const totalChapters = chapters.length;
       const totalChapters = chapters.length || 1;
       const completedCount = progResult.rows.filter((r) => r.completed).length;
       const currentChapter = chapterIndex + 1;
@@ -542,25 +546,37 @@ router.get('/sessions', async (req, res) => {
   }
 });
 
-/** Get chapters for a plan (parse PDF and cache in meta). Holidays are excluded. */
+/** Get chapters for a plan (parse PDF and cache in meta). Only real chapters from the planning table; holidays are never returned. */
 router.get('/academic-plan/chapters/:planId', async (req, res) => {
   try {
     const { planId } = req.params;
     const plan = getPlanById(planId);
     if (!plan) return res.status(404).json({ error: 'Academic plan not found' });
+    const filePath = getPlanFilePath(planId);
+    if (!filePath) return res.status(404).json({ error: 'Plan PDF not found' });
+
     let chapters = Array.isArray(plan.chapters) ? plan.chapters : [];
-    if (chapters.length === 0) {
-      const filePath = getPlanFilePath(planId);
-      if (!filePath) return res.status(404).json({ error: 'Plan PDF not found' });
-      chapters = await extractChaptersFromPdf(filePath);
-      if (chapters.length > 0) setPlanChapters(planId, chapters);
-      else chapters = [];
-    }
-    chapters = chapters.filter((c) => !isHolidayLine(c));
-    if (chapters.length === 0 && Array.isArray(plan.chapters) && plan.chapters.length > 0) {
-      const filePath = getPlanFilePath(planId);
-      if (filePath) {
+    const hasInvalidCache = chapters.some((c) => isMetadataOrHolidayLine(c));
+    const hasFallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
+    if (hasInvalidCache || chapters.length === 0 || hasFallbackOnly) {
+      if (hasInvalidCache) setPlanChapters(planId, []); // clear bad cache so we don't reuse it
+      try {
         chapters = await extractChaptersFromPdf(filePath);
+      } catch (parseErr) {
+        console.error('PDF chapter extraction failed:', parseErr);
+        chapters = [];
+      }
+      chapters = chapters.filter((c) => !isHolidayLine(c));
+      if (chapters.length > 0) setPlanChapters(planId, chapters);
+    } else {
+      chapters = chapters.filter((c) => !isHolidayLine(c));
+      if (chapters.length === 0) {
+        try {
+          chapters = await extractChaptersFromPdf(filePath);
+        } catch (_) {
+          chapters = [];
+        }
+        chapters = chapters.filter((c) => !isHolidayLine(c));
         if (chapters.length > 0) setPlanChapters(planId, chapters);
       }
     }
@@ -603,14 +619,23 @@ router.get('/chapter-progress', async (req, res) => {
     let plan = getPlanById(planId);
     if (!plan) return res.status(404).json({ error: 'Academic plan not found' });
     let chapters = Array.isArray(plan.chapters) ? plan.chapters : [];
-    if (chapters.length === 0) {
+    const hasInvalidCache = chapters.some((c) => isMetadataOrHolidayLine(c));
+    const hasFallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
+    if (hasInvalidCache || chapters.length === 0 || hasFallbackOnly) {
       const filePath = getPlanFilePath(planId);
       if (filePath) {
-        chapters = await extractChaptersFromPdf(filePath);
+        if (hasInvalidCache) setPlanChapters(planId, []);
+        try {
+          chapters = await extractChaptersFromPdf(filePath);
+        } catch (_) {
+          chapters = [];
+        }
+        chapters = chapters.filter((c) => !isHolidayLine(c));
         if (chapters.length > 0) setPlanChapters(planId, chapters);
       }
+    } else {
+      chapters = chapters.filter((c) => !isHolidayLine(c));
     }
-    chapters = chapters.filter((c) => !isHolidayLine(c));
     const result = await query(
       `SELECT chapter_index, completed, completed_at FROM teacher_chapter_progress
        WHERE teacher_id = $1 AND plan_id = $2`,
@@ -621,7 +646,7 @@ router.get('/chapter-progress', async (req, res) => {
       byChapter[r.chapter_index] = { completed: r.completed, completed_at: r.completed_at };
     });
     const completedCount = Object.values(byChapter).filter((v) => v.completed).length;
-    const totalChapters = chapters.length || 1;
+    const totalChapters = chapters.length;
     const paceMessage = totalChapters > 0
       ? `You have completed ${completedCount} of ${totalChapters} chapters. ${completedCount >= totalChapters ? 'All chapters done!' : `Keep going — ${totalChapters - completedCount} remaining.`}`
       : 'Select an academic plan to see your progress.';

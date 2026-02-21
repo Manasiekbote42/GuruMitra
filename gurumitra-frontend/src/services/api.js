@@ -186,9 +186,18 @@ export const teacherGetSessionsForPlan = (planId, chapterIndex = null) =>
     params: { plan_id: planId, ...(chapterIndex != null ? { chapter_index: chapterIndex } : {}) },
   }).then((r) => r.data);
 
-/** Teacher: Mark chapter complete. */
-export const teacherChapterComplete = (planId, chapterIndex, completed) =>
-  api.post('/api/teacher/chapter-complete', { plan_id: planId, chapter_index: chapterIndex, completed }).then((r) => r.data);
+/** Teacher: Delete an uploaded session (and its file if any). */
+export const teacherDeleteSession = (sessionId) =>
+  api.delete(`/api/teacher/sessions/${sessionId}`).then((r) => r.data);
+
+/** Teacher: Mark chapter complete. Optional completed_date (YYYY-MM-DD) when completed is true. */
+export const teacherChapterComplete = (planId, chapterIndex, completed, completedDate) =>
+  api.post('/api/teacher/chapter-complete', {
+    plan_id: planId,
+    chapter_index: chapterIndex,
+    completed,
+    ...(completed && completedDate ? { completed_date: completedDate } : {}),
+  }).then((r) => r.data);
 
 /** Teacher: Get chapter progress and pacing for a plan. */
 export const teacherGetChapterProgress = (planId) =>

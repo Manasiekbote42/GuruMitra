@@ -12,6 +12,7 @@ import {
   teacherGetFeedback,
   teacherGetScores,
   teacherGetVideoFeedback,
+  teacherDeleteSession,
 } from '../../services/api';
 
 export default function TeacherVideoAnalysis() {
@@ -28,7 +29,13 @@ export default function TeacherVideoAnalysis() {
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadUrl, setUploadUrl] = useState('');
   const [uploadError, setUploadError] = useState('');
+  const [uploadDate, setUploadDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [openUploadChapter, setOpenUploadChapter] = useState(null);
+  const [expandedChapters, setExpandedChapters] = useState({});
+  const [pendingCompleteChapter, setPendingCompleteChapter] = useState(null);
+  const [completionDate, setCompletionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [analyzingSessionId, setAnalyzingSessionId] = useState(null);
+  const [analyzingChapterIndex, setAnalyzingChapterIndex] = useState(null);
 
   useEffect(() => {
     teacherAcademicPlanGet()
@@ -65,7 +72,7 @@ export default function TeacherVideoAnalysis() {
           });
         });
         if (chList.length === 0) setSessionsByChapter({});
-        else setOpenUploadChapter(0);
+        else setExpandedChapters({ 0: true });
       })
       .catch(() => {
         setChapters([]);
@@ -81,61 +88,94 @@ export default function TeacherVideoAnalysis() {
     });
   };
 
-  const handleMarkComplete = async (chapterIndex, completed) => {
+  useEffect(() => {
+    if (!analyzingSessionId) return;
+    const sessionId = analyzingSessionId;
+    const chapterIdx = analyzingChapterIndex;
+    const interval = setInterval(() => {
+      teacherGetVideoFeedback(sessionId)
+        .then((data) => {
+          if (data.status === 'processing') return;
+          setAnalyzingSessionId(null);
+          setAnalyzingChapterIndex(null);
+          if (chapterIdx != null) refreshSessionsForChapter(chapterIdx);
+        })
+        .catch(() => {});
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [analyzingSessionId, analyzingChapterIndex, selectedPlanId]);
+
+  const handleMarkComplete = async (chapterIndex, completed, completedDateValue) => {
     setCompleting(chapterIndex);
     try {
-      await teacherChapterComplete(selectedPlanId, chapterIndex, completed);
+      await teacherChapterComplete(selectedPlanId, chapterIndex, completed, completedDateValue);
       const prog = await teacherGetChapterProgress(selectedPlanId);
       setProgress(prog);
+      setPendingCompleteChapter(null);
     } catch (_) {}
     setCompleting(null);
   };
 
-  const handleUploadByUrl = async (e, chapterIndex) => {
-    e.preventDefault();
-    const url = (uploadUrl || '').trim();
-    if (!url) {
-      setUploadError('Please enter a YouTube or video URL');
-      return;
+  const handleMarkCompleteClick = (chapterIndex, checked) => {
+    if (checked) {
+      setPendingCompleteChapter(chapterIndex);
+      setCompletionDate(new Date().toISOString().slice(0, 10));
+    } else {
+      handleMarkComplete(chapterIndex, false);
     }
-    setUploadError('');
-    setUploadingFor(chapterIndex);
-    try {
-      await teacherUploadSession(url, {
-        video_title: uploadTitle.trim() || `Chapter ${chapterIndex + 1} video`,
-        academic_plan_id: selectedPlanId,
-        chapter_index: chapterIndex,
-      });
-      setUploadUrl('');
-      setUploadTitle('');
-      refreshSessionsForChapter(chapterIndex);
-    } catch (err) {
-      setUploadError(err.response?.data?.error || 'Upload failed');
-    }
-    setUploadingFor(null);
   };
 
-  const handleUploadByFile = async (e, chapterIndex) => {
+  const handleSubmitForAnalysis = async (e, chapterIndex) => {
     e.preventDefault();
-    if (!uploadFile) {
-      setUploadError('Please select a video file');
+    const title = (uploadTitle || '').trim();
+    if (!title) {
+      setUploadError('Video title is required');
       return;
     }
-    setUploadError('');
-    setUploadingFor(chapterIndex);
-    try {
-      await teacherUploadSessionFile(uploadFile, {
-        video_title: uploadTitle.trim() || `Chapter ${chapterIndex + 1} video`,
-        academic_plan_id: selectedPlanId,
-        chapter_index: chapterIndex,
-      });
-      setUploadFile(null);
-      setUploadTitle('');
-      refreshSessionsForChapter(chapterIndex);
-    } catch (err) {
-      setUploadError(err.response?.data?.error || 'Upload failed');
+    const url = (uploadUrl || '').trim();
+    if (url && !uploadFile) {
+      setUploadError('');
+      setUploadingFor(chapterIndex);
+      try {
+        const session = await teacherUploadSession(url, {
+          video_title: title,
+          academic_plan_id: selectedPlanId,
+          chapter_index: chapterIndex,
+          date_of_recording: uploadDate || new Date().toISOString().slice(0, 10),
+        });
+        setUploadUrl('');
+        setUploadTitle('');
+        setAnalyzingSessionId(session?.id || null);
+        setAnalyzingChapterIndex(session?.id ? chapterIndex : null);
+        refreshSessionsForChapter(chapterIndex);
+      } catch (err) {
+        setUploadError(err.response?.data?.error || 'Upload failed');
+      }
+      setUploadingFor(null);
+      return;
     }
-    setUploadingFor(null);
+    if (uploadFile) {
+      setUploadError('');
+      setUploadingFor(chapterIndex);
+      try {
+        const session = await teacherUploadSessionFile(uploadFile, {
+          video_title: title,
+          academic_plan_id: selectedPlanId,
+          chapter_index: chapterIndex,
+          date_of_recording: uploadDate || new Date().toISOString().slice(0, 10),
+        });
+        setUploadFile(null);
+        setUploadTitle('');
+        setAnalyzingSessionId(session?.id || null);
+        setAnalyzingChapterIndex(session?.id ? chapterIndex : null);
+        refreshSessionsForChapter(chapterIndex);
+      } catch (err) {
+        setUploadError(err.response?.data?.error || 'Upload failed');
+      }
+      setUploadingFor(null);
+      return;
+    }
+    setUploadError('Please paste a video URL or select a video file');
   };
 
   if (loadingPlans) {
@@ -175,8 +215,13 @@ export default function TeacherVideoAnalysis() {
           </select>
         </div>
         {progress?.paceMessage && (
-          <div className="p-3 rounded-lg bg-primary-50 text-primary-800 text-sm mb-6">
+          <div className="p-3 rounded-lg bg-primary-50 text-primary-800 text-sm mb-4">
             {progress.paceMessage}
+          </div>
+        )}
+        {progress?.paceSuggestions && (
+          <div className="p-3 rounded-lg bg-amber-50 text-amber-900 text-sm mb-6">
+            <strong>Pacing:</strong> {progress.paceSuggestions}
           </div>
         )}
       </Card>
@@ -190,121 +235,206 @@ export default function TeacherVideoAnalysis() {
           <p className="text-gray-600">No chapters could be read from this plan&apos;s PDF. Make sure the PDF contains headings like &quot;Chapter 1&quot;, &quot;1. Title&quot;, or &quot;Unit 1&quot;.</p>
         </Card>
       ) : (
-        chapters.map((chapterTitle, chapterIndex) => {
-          const sessions = sessionsByChapter[chapterIndex] || [];
-          const isCompleted = progress?.completedByChapter?.[chapterIndex]?.completed;
-          return (
-            <Card key={chapterIndex} title={chapterTitle || `Chapter ${chapterIndex + 1}`}>
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                {isCompleted && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-800 text-sm font-medium" title="Chapter completed">
-                    ✓ Completed
-                  </span>
-                )}
-                <label className="inline-flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!!isCompleted}
-                    onChange={(e) => handleMarkComplete(chapterIndex, e.target.checked)}
-                    disabled={completing === chapterIndex}
-                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-700">Mark chapter as completed</span>
-                </label>
-              </div>
-
-              <div className="mb-4">
-                <p className="text-sm font-medium text-gray-700 mb-2">Videos for this chapter</p>
-                {sessions.length === 0 ? (
-                  <p className="text-sm text-gray-500 mb-2">No videos yet. Upload a video or paste a link below to get AI analysis and feedback.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {sessions.map((s) => (
-                      <SessionRow key={s.id} session={s} chapterTitle={chapterTitle} />
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setOpenUploadChapter(openUploadChapter === chapterIndex ? null : chapterIndex)}
-                  className="w-full px-3 py-2.5 text-left text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 flex items-center justify-between"
-                >
-                  {sessions.length === 0 ? 'Upload video or paste link' : 'Add another video'}
-                  <span className="text-primary-600">{openUploadChapter === chapterIndex ? '▼' : '▶'}</span>
-                </button>
-                {openUploadChapter === chapterIndex && (
-                  <div className="p-3 bg-gray-50 space-y-4 border-t border-gray-200">
-                    <input
-                      type="text"
-                      value={uploadTitle}
-                      onChange={(e) => setUploadTitle(e.target.value)}
-                      placeholder="Video title (optional)"
-                      className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
-                    />
-                    {/* YouTube / URL */}
-                    <form onSubmit={(e) => handleUploadByUrl(e, chapterIndex)} className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">YouTube or video URL</label>
-                      <div className="flex flex-wrap gap-2">
-                        <input
-                          type="url"
-                          value={uploadUrl}
-                          onChange={(e) => { setUploadUrl(e.target.value); setUploadError(''); }}
-                          placeholder="https://youtube.com/... or video link"
-                          className="flex-1 min-w-[200px] px-2 py-1.5 text-sm rounded border border-gray-300"
-                        />
-                        <button
-                          type="submit"
-                          disabled={!uploadUrl.trim() || uploadingFor === chapterIndex}
-                          className="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
-                        >
-                          {uploadingFor === chapterIndex ? 'Submitting…' : 'Add by URL'}
-                        </button>
-                      </div>
-                    </form>
-                    <div className="text-xs text-gray-500 border-t border-gray-200 pt-2">or</div>
-                    {/* Upload file */}
-                    <form onSubmit={(e) => handleUploadByFile(e, chapterIndex)} className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">Upload from device</label>
-                      <div className="flex flex-wrap gap-2">
-                        <input
-                          type="file"
-                          accept="video/*"
-                          onChange={(e) => { setUploadFile(e.target.files?.[0] || null); setUploadError(''); }}
-                          className="text-sm text-gray-600 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-primary-50 file:text-primary-700"
-                        />
-                        <button
-                          type="submit"
-                          disabled={!uploadFile || uploadingFor === chapterIndex}
-                          className="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
-                        >
-                          {uploadingFor === chapterIndex ? 'Uploading…' : 'Upload file'}
-                        </button>
-                      </div>
-                    </form>
-                    {uploadError && uploadingFor === chapterIndex && (
-                      <p className="text-sm text-red-600">{uploadError}</p>
+        <div className="space-y-2">
+          {chapters.map((chapterTitle, chapterIndex) => {
+            const sessions = sessionsByChapter[chapterIndex] || [];
+            const isCompleted = progress?.completedByChapter?.[chapterIndex]?.completed;
+            const isExpanded = expandedChapters[chapterIndex];
+            const isAnalyzing = analyzingChapterIndex === chapterIndex;
+            return (
+              <div key={chapterIndex} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                {/* Chapter header: title (dropdown toggle) + Mark as completed (top right) */}
+                <div className="flex items-center justify-between gap-3 px-4 py-3 bg-gray-50 border-b border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedChapters((prev) => ({ ...prev, [chapterIndex]: !prev[chapterIndex] }))}
+                    className="flex-1 flex items-center gap-2 text-left font-medium text-gray-900 hover:text-primary-700"
+                  >
+                    <span className="text-primary-600">{isExpanded ? '▼' : '▶'}</span>
+                    {chapterTitle || `Chapter ${chapterIndex + 1}`}
+                    {sessions.length > 0 && (
+                      <span className="text-sm font-normal text-gray-500">({sessions.length} video{sessions.length !== 1 ? 's' : ''})</span>
                     )}
+                  </button>
+                  <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    {isCompleted && (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-800 text-sm font-medium">
+                        ✓ Completed
+                      </span>
+                    )}
+                    {!isCompleted && pendingCompleteChapter !== chapterIndex && (
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={false}
+                          onChange={(e) => handleMarkCompleteClick(chapterIndex, e.target.checked)}
+                          disabled={completing === chapterIndex}
+                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="text-sm text-gray-700">Mark as completed</span>
+                      </label>
+                    )}
+                    {isCompleted && (
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked
+                          onChange={(e) => !e.target.checked && handleMarkComplete(chapterIndex, false)}
+                          disabled={completing === chapterIndex}
+                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="text-sm text-gray-700">Mark as completed</span>
+                      </label>
+                    )}
+                    {pendingCompleteChapter === chapterIndex && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="text-sm text-gray-700">Completion date:</label>
+                        <input
+                          type="date"
+                          value={completionDate}
+                          onChange={(e) => setCompletionDate(e.target.value)}
+                          className="px-2 py-1.5 text-sm rounded border border-gray-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleMarkComplete(chapterIndex, true, completionDate)}
+                          disabled={completing === chapterIndex}
+                          className="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPendingCompleteChapter(null)}
+                          className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="p-4 space-y-4">
+                    {progress?.pacingFeedback?.find((p) => p.chapterIndex === chapterIndex) && (
+                      <p className="text-sm text-gray-600">
+                        {progress.pacingFeedback.find((p) => p.chapterIndex === chapterIndex).message}
+                      </p>
+                    )}
+
+                    {/* Videos list with titles */}
+                    {sessions.length > 0 ? (
+                      <div>
+                        <p className="text-sm font-medium text-gray-700 mb-2">Videos for this chapter</p>
+                        <ul className="space-y-2 mb-4">
+                          {sessions.map((s) => (
+                            <SessionRow
+                              key={s.id}
+                              session={s}
+                              chapterTitle={chapterTitle}
+                              onDeleted={() => refreshSessionsForChapter(chapterIndex)}
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500">No videos yet. Add a video below and submit for analysis.</p>
+                    )}
+
+                    {/* Analysis in progress */}
+                    {isAnalyzing && (
+                      <div className="p-3 rounded-lg bg-primary-50 border border-primary-200">
+                        <p className="text-sm font-medium text-primary-800 mb-2">Analyzing your video…</p>
+                        <div className="h-2 bg-primary-200 rounded-full overflow-hidden">
+                          <div className="h-full bg-primary-600 rounded-full animate-pulse w-full" style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
+                        </div>
+                        <p className="text-xs text-primary-700 mt-1">Analysis usually takes 1–2 minutes. This will update automatically.</p>
+                      </div>
+                    )}
+
+                    {/* Upload next / Add another video */}
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setOpenUploadChapter(openUploadChapter === chapterIndex ? null : chapterIndex)}
+                        className="w-full px-3 py-2.5 text-left text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 flex items-center justify-between"
+                      >
+                        {sessions.length === 0 ? 'Upload video or paste link' : 'Add another video'}
+                        <span className="text-primary-600">{openUploadChapter === chapterIndex ? '▼' : '▶'}</span>
+                      </button>
+                      {openUploadChapter === chapterIndex && (
+                        <form onSubmit={(e) => handleSubmitForAnalysis(e, chapterIndex)} className="p-3 bg-gray-50 space-y-4 border-t border-gray-200">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Video title <span className="text-red-600">*</span></label>
+                            <input
+                              type="text"
+                              value={uploadTitle}
+                              onChange={(e) => { setUploadTitle(e.target.value); setUploadError(''); }}
+                              placeholder="Enter a title for this video (required)"
+                              className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Date of upload / recording</label>
+                            <input
+                              type="date"
+                              value={uploadDate}
+                              onChange={(e) => setUploadDate(e.target.value)}
+                              className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">YouTube or video URL</label>
+                            <input
+                              type="url"
+                              value={uploadUrl}
+                              onChange={(e) => { setUploadUrl(e.target.value); setUploadError(''); }}
+                              placeholder="https://youtube.com/... or video link"
+                              className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Or upload from device</label>
+                            <input
+                              type="file"
+                              accept="video/*"
+                              onChange={(e) => { setUploadFile(e.target.files?.[0] || null); setUploadError(''); }}
+                              className="w-full text-sm text-gray-600 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-primary-50 file:text-primary-700"
+                            />
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={(!uploadUrl.trim() && !uploadFile) || uploadingFor === chapterIndex}
+                            className="w-full px-4 py-2.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                          >
+                            {uploadingFor === chapterIndex ? 'Submitting…' : 'Submit for analysis'}
+                          </button>
+                          {uploadError && uploadingFor === chapterIndex && (
+                            <p className="text-sm text-red-600" role="alert">{uploadError}</p>
+                          )}
+                        </form>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
-            </Card>
-          );
-        })
+            );
+          })}
+        </div>
       )}
     </div>
   );
 }
 
-function SessionRow({ session, chapterTitle }) {
+function SessionRow({ session, chapterTitle, onDeleted }) {
   const [feedback, setFeedback] = useState(null);
   const [scores, setScores] = useState(null);
   const [loading, setLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [videoFeedback, setVideoFeedback] = useState(null);
   const [videoFeedbackLoading, setVideoFeedbackLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadDetail = () => {
     if (feedback !== null) return;
@@ -333,20 +463,38 @@ function SessionRow({ session, chapterTitle }) {
     if (next) loadVideoFeedback();
   };
 
-  const date = session.uploaded_at || session.created_at;
+  const handleDelete = () => {
+    if (!window.confirm('Delete this video? Feedback and scores will be removed. This cannot be undone.')) return;
+    setDeleting(true);
+    teacherDeleteSession(session.id)
+      .then(() => { if (typeof onDeleted === 'function') onDeleted(); })
+      .catch(() => setDeleting(false));
+  };
+
+  const rawMeta = session.upload_metadata;
+  const meta = typeof rawMeta === 'string' ? (() => { try { return JSON.parse(rawMeta || '{}'); } catch { return {}; } })() : (rawMeta || {});
+  const title = (meta.video_title && String(meta.video_title).trim()) || 'Video';
+  const uploadDateStr = meta.date_of_recording && String(meta.date_of_recording).trim();
+  const dateForDisplay = uploadDateStr && /^\d{4}-\d{2}-\d{2}$/.test(uploadDateStr)
+    ? `${uploadDateStr}T00:00:00`
+    : (session.uploaded_at || session.created_at);
+  const dateStr = dateForDisplay ? new Date(dateForDisplay).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—';
   const overall = scores?.overall_score != null ? Number(scores.overall_score).toFixed(1) : (videoFeedback?.score != null ? Number(videoFeedback.score).toFixed(1) : null);
 
   return (
-    <li className="py-3 border-b border-gray-100 last:border-0">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-gray-600">
-          {date ? new Date(date).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—'} · {session.status}
+    <li className="py-3 border-b border-gray-100 last:border-0 space-y-3">
+      <div>
+        <span className="font-medium text-gray-900">{title}</span>
+        <span className="text-sm text-gray-500 ml-2">
+          {dateStr} · {session.status}
           {overall != null && ` · Score: ${overall}/5`}
         </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         <Link
           to="/teacher/feedback"
           state={{ selectedSessionId: session.id }}
-          className="text-sm font-medium text-primary-600 hover:text-primary-700"
+          className="inline-flex items-center px-3 py-1.5 rounded-lg bg-primary-50 border border-primary-200 text-sm font-medium text-primary-700 hover:bg-primary-100"
           onMouseEnter={loadDetail}
           onClick={loadDetail}
         >
@@ -355,10 +503,21 @@ function SessionRow({ session, chapterTitle }) {
         <button
           type="button"
           onClick={toggleDetail}
-          className="text-sm font-medium text-primary-600 hover:text-primary-700"
+          className="inline-flex items-center px-3 py-1.5 rounded-lg bg-primary-50 border border-primary-200 text-sm font-medium text-primary-700 hover:bg-primary-100"
         >
           {detailOpen ? '▼ Hide detailed feedback' : '▶ View detailed feedback'}
         </button>
+        {onDeleted && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="ml-auto inline-flex items-center px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+            title="Delete this video"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        )}
       </div>
       {detailOpen && (
         <div className="mt-3 pl-2 border-l-2 border-primary-200 bg-gray-50 rounded-r p-3 space-y-4">

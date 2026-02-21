@@ -373,46 +373,9 @@ export default function TeacherDashboard() {
         </div>
       </section>
 
-      {/* 5️⃣ Self-Reflection Tools */}
+      {/* 5️⃣ Growth & Recognition */}
       <section>
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">5️⃣ Self-Reflection Tools</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card title="Session playback">
-            <p className="text-sm text-gray-600">Links to recorded sessions for self-review.</p>
-            {recentSessions.length > 0 ? (
-              <ul className="mt-2 space-y-1 text-sm">
-                {recentSessions.slice(0, 3).map((s) => (
-                  <li key={s.id}>
-                    <span className="text-gray-700">{new Date(s.created_at).toLocaleDateString()}</span>
-                    <span className="ml-2 text-gray-500">({s.status})</span>
-                    {s.video_url && (
-                      <a href={s.video_url} target="_blank" rel="noopener noreferrer" className="ml-2 text-primary-600 hover:underline">
-                        Open
-                      </a>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-gray-500 mt-2">No sessions yet.</p>
-            )}
-          </Card>
-          <Card title="Best practices library">
-            <p className="text-sm text-gray-600">Curated resources for teaching excellence.</p>
-            <p className="text-sm text-gray-500 mt-2">Coming soon.</p>
-          </Card>
-          <Card title="Skill-gap tracking">
-            <p className="text-sm text-gray-600">Track improvement over time by skill.</p>
-            <div className="mt-2 h-24 flex items-center justify-center text-gray-400 text-sm">
-              Sessions over time (below)
-            </div>
-          </Card>
-        </div>
-      </section>
-
-      {/* 6️⃣ Growth & Recognition */}
-      <section>
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">6️⃣ Growth &amp; Recognition</h2>
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">5️⃣ Growth &amp; Recognition</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card title="Badges">
             <p className="text-sm text-gray-600">Gamified achievements.</p>
@@ -424,23 +387,6 @@ export default function TeacherDashboard() {
                 <span className="px-2 py-1 rounded-full bg-primary-100 text-primary-700 text-xs font-medium">3 sessions</span>
               )}
               {completedSessions.length === 0 && <span className="text-sm text-gray-500">Complete sessions to earn badges.</span>}
-            </div>
-          </Card>
-          <Card title="Milestones">
-            <p className="text-sm text-gray-600">Growth milestones.</p>
-            <p className="text-sm text-gray-500 mt-2">{completedSessions.length} session(s) completed.</p>
-          </Card>
-          <Card title="Professional development timeline">
-            <p className="text-sm text-gray-600">Your PD timeline (completed sessions).</p>
-            <div className="mt-2 h-20">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} dot name="Sessions" />
-                </LineChart>
-              </ResponsiveContainer>
             </div>
           </Card>
         </div>

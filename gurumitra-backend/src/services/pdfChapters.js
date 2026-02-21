@@ -58,6 +58,22 @@ const NUMBER_TITLE_RE = new RegExp(
 const HOLIDAY_LINE_RE = new RegExp(`^(?:${MONTHS})\\s+\\d{4}\\s*.+`, 'i');
 const HOLIDAY_DATE_LINE_RE = new RegExp(`^\\d{1,2}\\s+(?:${MONTHS})\\s+\\d{4}\\s*.+`, 'i');
 
+// Table row with date captures: "1 Chapter Name 01 Jun 2026 08 Jun 2026 8" -> num, name, start date, end date
+const TABLE_ROW_WITH_DATES_RE = new RegExp(
+  `(\\d+)\\s+([\\s\\S]+?)\\s+(\\d{1,2})\\s+(${MONTHS})\\s+(\\d{4})\\s+(\\d{1,2})\\s+(${MONTHS})\\s+(\\d{4})(?:\\s+\\d+)?`,
+  'gi'
+);
+const MONTH_TO_NUM = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+function parseTableDate(dayStr, monthStr, yearStr) {
+  const d = parseInt(dayStr, 10);
+  const y = parseInt(yearStr, 10);
+  const m = MONTH_TO_NUM[(monthStr || '').trim().toLowerCase().slice(0, 3)];
+  if (Number.isNaN(d) || Number.isNaN(y) || !m || d < 1 || d > 31) return null;
+  const date = new Date(y, m - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 function isHeaderOrDateLine(name) {
   const t = (name || '').trim();
   if (!t || t.length > 200) return true;
@@ -318,6 +334,52 @@ function findChapters(text) {
   }
 
   return chapters;
+}
+
+/**
+ * Find chapters with planned start/end dates from table rows "1 Chapter Name 01 Jun 2026 08 Jun 2026 8".
+ * @param { string } text - planning section text
+ * @returns { Array<{ index: number, name: string, plannedStart: string, plannedEnd: string }> }
+ */
+function findChaptersWithDates(text) {
+  if (!text || typeof text !== 'string') return [];
+  const seen = new Set();
+  const out = [];
+  let match;
+  TABLE_ROW_WITH_DATES_RE.lastIndex = 0;
+  while ((match = TABLE_ROW_WITH_DATES_RE.exec(text)) !== null) {
+    const num = parseInt(match[1], 10);
+    const name = (match[2] || '').replace(/\s+/g, ' ').trim();
+    if (!name || name.length < 2 || isHeaderOrDateLine(name) || isHolidayLine(name)) continue;
+    const plannedStart = parseTableDate(match[3], match[4], match[5]);
+    const plannedEnd = parseTableDate(match[6], match[7], match[8]);
+    if (!plannedStart || !plannedEnd) continue;
+    const key = `${num}-${name.slice(0, 50)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ index: num - 1, name, plannedStart, plannedEnd });
+  }
+  out.sort((a, b) => a.index - b.index);
+  return out;
+}
+
+/**
+ * @param { string } filePath - absolute path to PDF
+ * @returns { Promise<{ chapters: string[], chapterDates: Array<{ plannedStart: string, plannedEnd: string } | null> }> }
+ * chapterDates[i] is planned dates for chapter i, or null if not in PDF table.
+ */
+export async function extractChaptersWithDatesFromPdf(filePath) {
+  const text = await extractPdfText(filePath);
+  const planningSection = extractChapterPlanningSection(text);
+  const textToUse = planningSection.length > 50 ? planningSection : text;
+  const withDates = findChaptersWithDates(textToUse);
+  let chapters = findChapters(textToUse);
+  chapters = chapters.filter((c) => !isHolidayLine(c) && !isMetadataOrHolidayLine(c));
+  const chapterDates = chapters.map((name, i) => {
+    const w = withDates.find((d) => d.index === i || (d.name && name && d.name.trim() === name.trim()));
+    return w ? { plannedStart: w.plannedStart, plannedEnd: w.plannedEnd } : null;
+  });
+  return { chapters, chapterDates };
 }
 
 /**

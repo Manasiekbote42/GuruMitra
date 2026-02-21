@@ -25,7 +25,7 @@ function toArray(val) {
 // Sign up: name, email, password, role. No plain passwords stored.
 router.post('/signup', async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, role, subjects, classes, department } = req.body;
+    const { name, email, password, confirmPassword, role, subjects, classes, department, department } = req.body;
     const trimmedName = (name || '').trim();
     const trimmedEmail = (email || '').trim().toLowerCase();
 
@@ -51,7 +51,6 @@ router.post('/signup', async (req, res) => {
 
     const subjectsArr = role === 'teacher' ? toArray(subjects) : [];
     const classesArr = role === 'teacher' ? toArray(classes) : [];
-    const departmentVal = role === 'teacher' ? (department != null ? String(department).trim() : '') : null;
     if (role === 'teacher') {
       if (subjectsArr.length === 0) return res.status(400).json({ error: 'Please select at least one subject you teach' });
       if (classesArr.length === 0) return res.status(400).json({ error: 'Please select at least one class you teach' });

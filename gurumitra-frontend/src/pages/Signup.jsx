@@ -213,6 +213,29 @@ export default function Signup() {
                     ))}
                   </div>
                 </div>
+                <div>
+                  <label htmlFor="department" className="block text-sm font-medium text-gray-700 mb-2">Department</label>
+                  <select
+                    id="department"
+                    value={department}
+                    onChange={(e) => { setDepartment(e.target.value); if (e.target.value !== 'Other') setDepartmentOther(''); }}
+                    className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                  >
+                    <option value="">Select department</option>
+                    {DEPARTMENTS.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                  {department === 'Other' && (
+                    <input
+                      type="text"
+                      value={departmentOther}
+                      onChange={(e) => setDepartmentOther(e.target.value)}
+                      placeholder="Enter department name"
+                      className="mt-2 w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                  )}
+                </div>
               </>
             )}
 

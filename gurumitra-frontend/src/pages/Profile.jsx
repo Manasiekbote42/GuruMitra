@@ -56,7 +56,7 @@ export default function Profile() {
             <>
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-1">Department</h3>
-                <p className="text-sm text-gray-800">{u?.department || '—'}</p>
+                <p className="text-sm text-gray-800">{u?.department?.trim() ? u.department : '—'}</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-1">Subject(s) you teach</h3>

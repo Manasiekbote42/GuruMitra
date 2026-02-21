@@ -10,7 +10,7 @@ import { processSessionAsync } from '../services/aiProcessor.js';
 import { audit } from '../services/auditLog.js';
 import { computeContentHash, computeFileHash } from '../utils/contentHash.js';
 import { getPlans, getPlanFilePath, getPlanById, setPlanChapters } from '../services/academicPlanStore.js';
-import { extractChaptersFromPdf, isHolidayLine, isMetadataOrHolidayLine } from '../services/pdfChapters.js';
+import { extractChaptersFromPdf, extractChaptersWithDatesFromPdf, isHolidayLine, isMetadataOrHolidayLine } from '../services/pdfChapters.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(path.dirname(__dirname), '..', 'uploads');
@@ -129,6 +129,39 @@ router.post('/sessions/upload', upload.single('video'), async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to upload video' });
+  }
+});
+
+/** Delete an uploaded session. Teacher must own the session. Removes DB row (feedback/scores cascade) and any uploaded file. */
+router.delete('/sessions/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const teacherId = req.user.id;
+    const sessionResult = await query(
+      'SELECT id, video_url FROM classroom_sessions WHERE id = $1 AND teacher_id = $2',
+      [sessionId, teacherId]
+    );
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    const videoUrl = sessionResult.rows[0].video_url || '';
+    await query('DELETE FROM classroom_sessions WHERE id = $1 AND teacher_id = $2', [sessionId, teacherId]);
+    if (videoUrl.includes(`/api/teacher/session-file/${sessionId}`) && fs.existsSync(UPLOADS_DIR)) {
+      const files = fs.readdirSync(UPLOADS_DIR);
+      const toRemove = files.find((f) => f.startsWith(sessionId) && f.includes('.'));
+      if (toRemove) {
+        try {
+          fs.unlinkSync(path.join(UPLOADS_DIR, toRemove));
+        } catch (e) {
+          console.warn('Could not remove upload file:', toRemove, e);
+        }
+      }
+    }
+    audit(teacherId, 'teacher', 'session_deleted', 'session', sessionId, req.user.school_id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete session' });
   }
 });
 
@@ -450,7 +483,6 @@ router.get('/video-feedback/:videoId', async (req, res) => {
       let chapters = plan && Array.isArray(plan.chapters) ? plan.chapters : [];
       const fallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
       if ((chapters.length === 0 || fallbackOnly) && plan) {
-      if (chapters.length === 0 && plan) {
         const filePath = getPlanFilePath(planId);
         if (filePath) {
           try {
@@ -461,7 +493,6 @@ router.get('/video-feedback/:videoId', async (req, res) => {
         }
       }
       chapters = chapters.filter((c) => !isHolidayLine(c));
-      const totalChapters = chapters.length;
       const totalChapters = chapters.length || 1;
       const completedCount = progResult.rows.filter((r) => r.completed).length;
       const currentChapter = chapterIndex + 1;
@@ -521,20 +552,20 @@ router.get('/sessions', async (req, res) => {
     if (planId) {
       if (chapterIndex !== null && !Number.isNaN(chapterIndex)) {
         result = await query(
-          `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index
+          `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index, upload_metadata
            FROM classroom_sessions WHERE teacher_id = $1 AND academic_plan_id = $2 AND chapter_index = $3 ORDER BY created_at DESC`,
           [req.user.id, planId, chapterIndex]
         );
       } else {
         result = await query(
-          `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index
+          `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index, upload_metadata
            FROM classroom_sessions WHERE teacher_id = $1 AND academic_plan_id = $2 ORDER BY created_at DESC`,
           [req.user.id, planId]
         );
       }
     } else {
       result = await query(
-        `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index
+        `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index, upload_metadata
          FROM classroom_sessions WHERE teacher_id = $1 ORDER BY created_at DESC`,
         [req.user.id]
       );
@@ -546,7 +577,7 @@ router.get('/sessions', async (req, res) => {
   }
 });
 
-/** Get chapters for a plan (parse PDF and cache in meta). Only real chapters from the planning table; holidays are never returned. */
+/** Get chapters for a plan (parse PDF and cache in meta). Returns chapters and chapterDates (planned start/end from PDF). */
 router.get('/academic-plan/chapters/:planId', async (req, res) => {
   try {
     const { planId } = req.params;
@@ -556,53 +587,70 @@ router.get('/academic-plan/chapters/:planId', async (req, res) => {
     if (!filePath) return res.status(404).json({ error: 'Plan PDF not found' });
 
     let chapters = Array.isArray(plan.chapters) ? plan.chapters : [];
+    let chapterDates = [];
     const hasInvalidCache = chapters.some((c) => isMetadataOrHolidayLine(c));
     const hasFallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
     if (hasInvalidCache || chapters.length === 0 || hasFallbackOnly) {
-      if (hasInvalidCache) setPlanChapters(planId, []); // clear bad cache so we don't reuse it
+      if (hasInvalidCache) setPlanChapters(planId, []);
       try {
-        chapters = await extractChaptersFromPdf(filePath);
+        const withDates = await extractChaptersWithDatesFromPdf(filePath);
+        chapters = (withDates.chapters || []).filter((c) => !isHolidayLine(c));
+        chapterDates = withDates.chapterDates || [];
+        if (chapters.length > 0) setPlanChapters(planId, chapters);
       } catch (parseErr) {
         console.error('PDF chapter extraction failed:', parseErr);
         chapters = [];
       }
-      chapters = chapters.filter((c) => !isHolidayLine(c));
-      if (chapters.length > 0) setPlanChapters(planId, chapters);
     } else {
       chapters = chapters.filter((c) => !isHolidayLine(c));
       if (chapters.length === 0) {
         try {
-          chapters = await extractChaptersFromPdf(filePath);
+          const withDates = await extractChaptersWithDatesFromPdf(filePath);
+          chapters = (withDates.chapters || []).filter((c) => !isHolidayLine(c));
+          chapterDates = withDates.chapterDates || [];
+          if (chapters.length > 0) setPlanChapters(planId, chapters);
         } catch (_) {
           chapters = [];
         }
-        chapters = chapters.filter((c) => !isHolidayLine(c));
-        if (chapters.length > 0) setPlanChapters(planId, chapters);
+      } else {
+        try {
+          const withDates = await extractChaptersWithDatesFromPdf(filePath);
+          chapterDates = withDates.chapterDates || [];
+        } catch (_) {}
       }
     }
-    res.json({ chapters });
+    res.json({ chapters, chapterDates: chapterDates.length ? chapterDates : undefined });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to get chapters' });
   }
 });
 
-/** Mark a chapter as completed (or uncompleted). Body: { plan_id, chapter_index, completed } */
+/** Mark a chapter as completed (or uncompleted). Body: { plan_id, chapter_index, completed, completed_date } (completed_date = YYYY-MM-DD when marking complete). */
 router.post('/chapter-complete', async (req, res) => {
   try {
-    const { plan_id, chapter_index, completed } = req.body || {};
+    const { plan_id, chapter_index, completed, completed_date } = req.body || {};
     const planId = (plan_id != null && String(plan_id).trim()) ? String(plan_id).trim() : null;
     const chIndex = chapter_index != null && Number.isInteger(Number(chapter_index)) ? Number(chapter_index) : null;
     if (!planId || chIndex == null || Number.isNaN(chIndex)) {
       return res.status(400).json({ error: 'plan_id and chapter_index are required' });
     }
     const teacherId = req.user.id;
+    let completedAt = null;
+    if (completed) {
+      const dateStr = (completed_date != null && String(completed_date).trim()) ? String(completed_date).trim() : null;
+      if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        completedAt = `${dateStr}T00:00:00.000Z`;
+      } else {
+        completedAt = new Date().toISOString();
+      }
+    }
     await query(
       `INSERT INTO teacher_chapter_progress (teacher_id, plan_id, chapter_index, completed, completed_at)
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (teacher_id, plan_id, chapter_index)
        DO UPDATE SET completed = $4, completed_at = $5`,
-      [teacherId, planId, chIndex, !!completed, completed ? new Date().toISOString() : null]
+      [teacherId, planId, chIndex, !!completed, completedAt]
     );
     res.json({ ok: true, completed: !!completed });
   } catch (err) {
@@ -611,7 +659,14 @@ router.post('/chapter-complete', async (req, res) => {
   }
 });
 
-/** Get chapter progress for a plan (for pacing). */
+function daysBetween(isoOrDateStr1, isoOrDateStr2) {
+  const d1 = new Date(isoOrDateStr1);
+  const d2 = new Date(isoOrDateStr2);
+  if (Number.isNaN(d1.getTime()) || Number.isNaN(d2.getTime())) return null;
+  return Math.round((d2 - d1) / (24 * 60 * 60 * 1000));
+}
+
+/** Get chapter progress for a plan (for pacing). Returns pacingFeedback comparing completion dates to PDF planned dates. */
 router.get('/chapter-progress', async (req, res) => {
   try {
     const planId = (req.query.plan_id || '').trim();
@@ -619,22 +674,30 @@ router.get('/chapter-progress', async (req, res) => {
     let plan = getPlanById(planId);
     if (!plan) return res.status(404).json({ error: 'Academic plan not found' });
     let chapters = Array.isArray(plan.chapters) ? plan.chapters : [];
+    let chapterDates = [];
     const hasInvalidCache = chapters.some((c) => isMetadataOrHolidayLine(c));
     const hasFallbackOnly = chapters.length === 1 && chapters[0] === 'Syllabus / Plan';
+    const filePath = getPlanFilePath(planId);
     if (hasInvalidCache || chapters.length === 0 || hasFallbackOnly) {
-      const filePath = getPlanFilePath(planId);
       if (filePath) {
         if (hasInvalidCache) setPlanChapters(planId, []);
         try {
-          chapters = await extractChaptersFromPdf(filePath);
+          const withDates = await extractChaptersWithDatesFromPdf(filePath);
+          chapters = (withDates.chapters || []).filter((c) => !isHolidayLine(c));
+          chapterDates = withDates.chapterDates || [];
+          if (chapters.length > 0) setPlanChapters(planId, chapters);
         } catch (_) {
           chapters = [];
         }
-        chapters = chapters.filter((c) => !isHolidayLine(c));
-        if (chapters.length > 0) setPlanChapters(planId, chapters);
       }
     } else {
       chapters = chapters.filter((c) => !isHolidayLine(c));
+      if (filePath) {
+        try {
+          const withDates = await extractChaptersWithDatesFromPdf(filePath);
+          chapterDates = withDates.chapterDates || [];
+        } catch (_) {}
+      }
     }
     const result = await query(
       `SELECT chapter_index, completed, completed_at FROM teacher_chapter_progress
@@ -647,16 +710,71 @@ router.get('/chapter-progress', async (req, res) => {
     });
     const completedCount = Object.values(byChapter).filter((v) => v.completed).length;
     const totalChapters = chapters.length;
+
+    const sessionCountResult = await query(
+      'SELECT COUNT(*) AS n FROM classroom_sessions WHERE teacher_id = $1 AND academic_plan_id = $2',
+      [req.user.id, planId]
+    );
+    const hasAnyVideos = (Number(sessionCountResult.rows[0]?.n) || 0) > 0;
+
+    const pacingFeedback = [];
+    const toleranceDays = 2;
+    if (hasAnyVideos) {
+      for (let i = 0; i < chapters.length; i++) {
+        const prog = byChapter[i];
+        const dates = chapterDates[i];
+        if (!prog?.completed || !prog.completed_at || !dates?.plannedEnd) continue;
+        const daysDiff = daysBetween(dates.plannedEnd, prog.completed_at);
+        if (daysDiff == null) continue;
+        let status = 'on_time';
+        let message = 'Completed on time.';
+        if (daysDiff > toleranceDays) {
+          status = 'late';
+          message = `Completed ${daysDiff} day${daysDiff === 1 ? '' : 's'} after the planned end date. Consider covering the next chapters a bit faster to stay on track.`;
+        } else if (daysDiff < -toleranceDays) {
+          status = 'early';
+          message = `Completed ${-daysDiff} day${-daysDiff === 1 ? '' : 's'} before the planned end date. Good pace — you can maintain this or use the extra time for revision.`;
+        }
+        pacingFeedback.push({
+          chapterIndex: i,
+          chapterName: chapters[i],
+          completedAt: prog.completed_at,
+          plannedStart: dates.plannedStart,
+          plannedEnd: dates.plannedEnd,
+          daysEarlyOrLate: daysDiff,
+          status,
+          message,
+        });
+      }
+    }
+
+    let paceSuggestions = '';
+    if (hasAnyVideos && pacingFeedback.length > 0) {
+      const late = pacingFeedback.filter((p) => p.status === 'late');
+      const early = pacingFeedback.filter((p) => p.status === 'early');
+      if (late.length > 0 && early.length === 0) {
+        const avgLate = Math.round(late.reduce((s, p) => s + p.daysEarlyOrLate, 0) / late.length);
+        paceSuggestions = `You are completing chapters about ${avgLate} day${avgLate === 1 ? '' : 's'} behind schedule. To finish on time, try to cover the remaining chapters a bit faster or allocate more time per week.`;
+      } else if (early.length > 0 && late.length === 0) {
+        paceSuggestions = 'You are ahead of schedule. Keep this pace for the remaining chapters, or use the extra time for practice and revision.';
+      } else if (late.length > 0 && early.length > 0) {
+        paceSuggestions = 'Your pacing varies by chapter. Try to complete the remaining chapters by their planned end dates — focus on the upcoming ones to stay on track.';
+      }
+    }
+
     const paceMessage = totalChapters > 0
       ? `You have completed ${completedCount} of ${totalChapters} chapters. ${completedCount >= totalChapters ? 'All chapters done!' : `Keep going — ${totalChapters - completedCount} remaining.`}`
       : 'Select an academic plan to see your progress.';
     res.json({
       plan_id: planId,
       chapters,
+      chapterDates: chapterDates.length ? chapterDates : undefined,
       completedByChapter: byChapter,
       completedCount,
       totalChapters,
       paceMessage,
+      pacingFeedback: pacingFeedback.length ? pacingFeedback : undefined,
+      paceSuggestions: paceSuggestions || undefined,
     });
   } catch (err) {
     console.error(err);

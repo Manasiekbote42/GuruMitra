@@ -203,4 +203,20 @@ export const teacherChapterComplete = (planId, chapterIndex, completed, complete
 export const teacherGetChapterProgress = (planId) =>
   api.get('/api/teacher/chapter-progress', { params: { plan_id: planId } }).then((r) => r.data);
 
+/** Teacher: Monthly video analysis progress (count vs minimum, sessions for month). */
+export const teacherGetMonthlyProgress = (month) =>
+  api.get('/api/teacher/video-analysis/monthly-progress', { params: month ? { month } : {} }).then((r) => r.data);
+
+/** Teacher: Sessions for a given month (YYYY-MM). */
+export const teacherGetSessionsForMonth = (month) =>
+  api.get('/api/teacher/sessions', { params: { month } }).then((r) => r.data);
+
+/** Admin: Monthly video analysis progress (all teachers). */
+export const adminGetMonthlyProgress = (month) =>
+  api.get('/api/admin/video-analysis/monthly-progress', { params: month ? { month } : {} }).then((r) => r.data);
+
+/** Admin: Get full video feedback for any session (same shape as teacher video-feedback). */
+export const adminGetSessionFeedback = (sessionId) =>
+  api.get(`/api/admin/video-analysis/session/${sessionId}/feedback`).then((r) => r.data);
+
 export default api;

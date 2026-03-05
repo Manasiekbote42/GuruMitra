@@ -18,6 +18,7 @@ const roleLinks = {
   admin: [
     { to: '/admin/dashboard', label: 'Dashboard', icon: '⚙️' },
     { to: '/admin/users', label: 'User Management', icon: '👤' },
+    { to: '/admin/video-analysis', label: 'Video Analysis', icon: '🎬' },
     { to: '/admin/training-library', label: 'Training Library', icon: '📖' },
     { to: '/admin/activity', label: 'System Activity', icon: '📋' },
     { to: '/admin/academic-plan', label: 'Academic Plan', icon: '📅' },

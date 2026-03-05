@@ -18,6 +18,7 @@ import AdminUsers from './pages/admin/AdminUsers';
 import AdminActivity from './pages/admin/AdminActivity';
 import AdminTrainingLibrary from './pages/admin/AdminTrainingLibrary';
 import AdminAcademicPlan from './pages/admin/AdminAcademicPlan';
+import AdminVideoAnalysis from './pages/admin/AdminVideoAnalysis';
 import TrainingLibraryView from './pages/shared/TrainingLibraryView';
 import Profile from './pages/Profile';
 
@@ -62,6 +63,7 @@ function AppRoutes() {
       <Route path="/admin" element={<ProtectedLayout allowedRoles={['admin']} title="Admin" />}>
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="users" element={<AdminUsers />} />
+        <Route path="video-analysis" element={<AdminVideoAnalysis />} />
         <Route path="academic-plan" element={<AdminAcademicPlan />} />
         <Route path="training-library" element={<AdminTrainingLibrary />} />
         <Route path="activity" element={<AdminActivity />} />

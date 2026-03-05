@@ -2,11 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Card from '../../components/Card';
 import {
-  teacherAcademicPlanGet,
-  teacherGetChapters,
-  teacherGetChapterProgress,
-  teacherGetSessionsForPlan,
-  teacherChapterComplete,
+  teacherGetMonthlyProgress,
   teacherUploadSession,
   teacherUploadSessionFile,
   teacherGetFeedback,
@@ -16,413 +12,213 @@ import {
 } from '../../services/api';
 
 export default function TeacherVideoAnalysis() {
-  const [plans, setPlans] = useState([]);
-  const [selectedPlanId, setSelectedPlanId] = useState('');
-  const [chapters, setChapters] = useState([]);
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [progress, setProgress] = useState(null);
-  const [sessionsByChapter, setSessionsByChapter] = useState({});
-  const [loadingPlans, setLoadingPlans] = useState(true);
-  const [loadingChapters, setLoadingChapters] = useState(false);
-  const [completing, setCompleting] = useState(null);
-  const [uploadingFor, setUploadingFor] = useState(null);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadTitle, setUploadTitle] = useState('');
+  const [loading, setLoading] = useState(true);
   const [uploadUrl, setUploadUrl] = useState('');
-  const [uploadError, setUploadError] = useState('');
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadFile, setUploadFile] = useState(null);
   const [uploadDate, setUploadDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [openUploadChapter, setOpenUploadChapter] = useState(null);
-  const [expandedChapters, setExpandedChapters] = useState({});
-  const [pendingCompleteChapter, setPendingCompleteChapter] = useState(null);
-  const [completionDate, setCompletionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [uploadError, setUploadError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [openUpload, setOpenUpload] = useState(false);
   const [analyzingSessionId, setAnalyzingSessionId] = useState(null);
-  const [analyzingChapterIndex, setAnalyzingChapterIndex] = useState(null);
 
-  useEffect(() => {
-    teacherAcademicPlanGet()
-      .then((d) => {
-        setPlans(d.plans || []);
-        if (d.plans?.length && !selectedPlanId) setSelectedPlanId(d.plans[0].id);
-      })
-      .catch(() => setPlans([]))
-      .finally(() => setLoadingPlans(false));
-  }, []);
-
-  useEffect(() => {
-    if (!selectedPlanId) {
-      setChapters([]);
-      setProgress(null);
-      setSessionsByChapter({});
-      setOpenUploadChapter(null);
-      return;
-    }
-    setLoadingChapters(true);
-    Promise.all([
-      teacherGetChapters(selectedPlanId),
-      teacherGetChapterProgress(selectedPlanId),
-    ])
-      .then(([ch, prog]) => {
-        setChapters(ch.chapters || []);
-        setProgress(prog || null);
-        const chList = ch.chapters || [];
-        const byChapter = {};
-        chList.forEach((_, idx) => {
-          teacherGetSessionsForPlan(selectedPlanId, idx).then((sessions) => {
-            byChapter[idx] = sessions || [];
-            setSessionsByChapter((prev) => ({ ...prev, ...byChapter }));
-          });
-        });
-        if (chList.length === 0) setSessionsByChapter({});
-        else setExpandedChapters({ 0: true });
-      })
-      .catch(() => {
-        setChapters([]);
-        setProgress(null);
-      })
-      .finally(() => setLoadingChapters(false));
-  }, [selectedPlanId]);
-
-  const refreshSessionsForChapter = (chapterIndex) => {
-    if (!selectedPlanId) return;
-    teacherGetSessionsForPlan(selectedPlanId, chapterIndex).then((sessions) => {
-      setSessionsByChapter((prev) => ({ ...prev, [chapterIndex]: sessions || [] }));
-    });
+  const loadProgress = () => {
+    setLoading(true);
+    teacherGetMonthlyProgress(month)
+      .then((data) => setProgress(data))
+      .catch(() => setProgress(null))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
+    loadProgress();
+  }, [month]);
+
+  useEffect(() => {
     if (!analyzingSessionId) return;
-    const sessionId = analyzingSessionId;
-    const chapterIdx = analyzingChapterIndex;
     const interval = setInterval(() => {
-      teacherGetVideoFeedback(sessionId)
+      teacherGetVideoFeedback(analyzingSessionId)
         .then((data) => {
           if (data.status === 'processing') return;
           setAnalyzingSessionId(null);
-          setAnalyzingChapterIndex(null);
-          if (chapterIdx != null) refreshSessionsForChapter(chapterIdx);
+          loadProgress();
         })
         .catch(() => {});
     }, 2500);
     return () => clearInterval(interval);
-  }, [analyzingSessionId, analyzingChapterIndex, selectedPlanId]);
+  }, [analyzingSessionId, month]);
 
-  const handleMarkComplete = async (chapterIndex, completed, completedDateValue) => {
-    setCompleting(chapterIndex);
-    try {
-      await teacherChapterComplete(selectedPlanId, chapterIndex, completed, completedDateValue);
-      const prog = await teacherGetChapterProgress(selectedPlanId);
-      setProgress(prog);
-      setPendingCompleteChapter(null);
-    } catch (_) {}
-    setCompleting(null);
-  };
-
-  const handleMarkCompleteClick = (chapterIndex, checked) => {
-    if (checked) {
-      setPendingCompleteChapter(chapterIndex);
-      setCompletionDate(new Date().toISOString().slice(0, 10));
-    } else {
-      handleMarkComplete(chapterIndex, false);
-    }
-  };
-
-  const handleSubmitForAnalysis = async (e, chapterIndex) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const title = (uploadTitle || '').trim();
     if (!title) {
       setUploadError('Video title is required');
       return;
     }
-    const url = (uploadUrl || '').trim();
-    if (url && !uploadFile) {
+    const hasUrl = (uploadUrl || '').trim();
+    if (hasUrl && !uploadFile) {
       setUploadError('');
-      setUploadingFor(chapterIndex);
+      setUploading(true);
       try {
-        const session = await teacherUploadSession(url, {
+        const session = await teacherUploadSession(hasUrl, {
           video_title: title,
-          academic_plan_id: selectedPlanId,
-          chapter_index: chapterIndex,
           date_of_recording: uploadDate || new Date().toISOString().slice(0, 10),
         });
         setUploadUrl('');
         setUploadTitle('');
         setAnalyzingSessionId(session?.id || null);
-        setAnalyzingChapterIndex(session?.id ? chapterIndex : null);
-        refreshSessionsForChapter(chapterIndex);
+        loadProgress();
       } catch (err) {
         setUploadError(err.response?.data?.error || 'Upload failed');
       }
-      setUploadingFor(null);
+      setUploading(false);
       return;
     }
     if (uploadFile) {
       setUploadError('');
-      setUploadingFor(chapterIndex);
+      setUploading(true);
       try {
         const session = await teacherUploadSessionFile(uploadFile, {
           video_title: title,
-          academic_plan_id: selectedPlanId,
-          chapter_index: chapterIndex,
           date_of_recording: uploadDate || new Date().toISOString().slice(0, 10),
         });
         setUploadFile(null);
         setUploadTitle('');
         setAnalyzingSessionId(session?.id || null);
-        setAnalyzingChapterIndex(session?.id ? chapterIndex : null);
-        refreshSessionsForChapter(chapterIndex);
+        loadProgress();
       } catch (err) {
         setUploadError(err.response?.data?.error || 'Upload failed');
       }
-      setUploadingFor(null);
+      setUploading(false);
       return;
     }
     setUploadError('Please paste a video URL or select a video file');
   };
 
-  if (loadingPlans) {
-    return (
-      <div className="flex justify-center py-12">
-        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary-600" />
-      </div>
-    );
-  }
-
-  if (!plans.length) {
-    return (
-      <div className="space-y-6">
-        <Card title="Video Analysis">
-          <p className="text-gray-600">No academic plans available yet. Your admin needs to upload an academic plan (PDF) first from the Academic Plan section.</p>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <Card title="Video Analysis">
         <p className="text-sm text-gray-600 mb-4">
-          Choose an academic plan below. Chapters from the plan PDF appear here. For each chapter you can upload a video or paste a link to get AI analysis and feedback. Your progress and pacing are shown.
+          Upload a minimum number of videos per month for AI analysis. Your progress is recorded after each video. View feedback and scores below for each submission.
         </p>
+
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Academic plan</label>
-          <select
-            value={selectedPlanId}
-            onChange={(e) => setSelectedPlanId(e.target.value)}
-            className="w-full max-w-md px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500"
-          >
-            {plans.map((p) => (
-              <option key={p.id} value={p.id}>{p.subject} · {p.class}</option>
-            ))}
-          </select>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
         </div>
-        {progress?.paceMessage && (
-          <div className="p-3 rounded-lg bg-primary-50 text-primary-800 text-sm mb-4">
-            {progress.paceMessage}
+
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-600" />
           </div>
-        )}
-        {progress?.paceSuggestions && (
-          <div className="p-3 rounded-lg bg-amber-50 text-amber-900 text-sm mb-6">
-            <strong>Pacing:</strong> {progress.paceSuggestions}
-          </div>
+        ) : progress ? (
+          <>
+            <div className={`p-4 rounded-lg mb-6 ${progress.met ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-primary-50 text-primary-800 border border-primary-200'}`}>
+              <p className="font-medium">
+                {progress.monthLabel}: {progress.count} of {progress.minimum} videos
+                {progress.met ? ' — Target met' : ` — ${progress.minimum - progress.count} more to go`}
+              </p>
+              <p className="text-sm mt-1">{progress.message}</p>
+            </div>
+
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-gray-800 mb-2">Videos this month</h3>
+              {progress.sessions && progress.sessions.length > 0 ? (
+                <ul className="space-y-2">
+                  {progress.sessions.map((s) => (
+                    <SessionRow
+                      key={s.id}
+                      session={s}
+                      chapterTitle={null}
+                      onDeleted={loadProgress}
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500">No videos uploaded yet this month. Add one below.</p>
+              )}
+            </div>
+
+            {analyzingSessionId && (
+              <div className="p-3 rounded-lg bg-primary-50 border border-primary-200 mb-4">
+                <p className="text-sm font-medium text-primary-800">Analyzing your video…</p>
+                <div className="h-2 bg-primary-200 rounded-full overflow-hidden mt-2">
+                  <div className="h-full bg-primary-600 rounded-full animate-pulse w-full" style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
+                </div>
+                <p className="text-xs text-primary-700 mt-1">Analysis usually takes 1–2 minutes. This will update automatically.</p>
+              </div>
+            )}
+
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setOpenUpload(!openUpload)}
+                className="w-full px-3 py-2.5 text-left text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 flex items-center justify-between"
+              >
+                Add video
+                <span className="text-primary-600">{openUpload ? '▼' : '▶'}</span>
+              </button>
+              {openUpload && (
+                <form onSubmit={handleSubmit} className="p-3 bg-gray-50 space-y-4 border-t border-gray-200">
+                  <input
+                    type="text"
+                    value={uploadTitle}
+                    onChange={(e) => setUploadTitle(e.target.value)}
+                    placeholder="Video title (required)"
+                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
+                    required
+                  />
+                  <input
+                    type="date"
+                    value={uploadDate}
+                    onChange={(e) => setUploadDate(e.target.value)}
+                    className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
+                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">YouTube or video URL</label>
+                    <input
+                      type="url"
+                      value={uploadUrl}
+                      onChange={(e) => { setUploadUrl(e.target.value); setUploadError(''); }}
+                      placeholder="https://youtube.com/... or video link"
+                      className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
+                    />
+                  </div>
+                  <div className="text-xs text-gray-500 border-t border-gray-200 pt-2">or</div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Upload from device</label>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      onChange={(e) => { setUploadFile(e.target.files?.[0] || null); setUploadError(''); }}
+                      className="w-full text-sm text-gray-600 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-primary-50 file:text-primary-700"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={(!(uploadUrl || '').trim() && !uploadFile) || uploading}
+                    className="w-full px-4 py-2.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {uploading ? 'Submitting…' : 'Submit for analysis'}
+                  </button>
+                  {uploadError && (
+                    <p className="text-sm text-red-600" role="alert">{uploadError}</p>
+                  )}
+                </form>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="text-gray-600">Unable to load progress.</p>
         )}
       </Card>
-
-      {loadingChapters ? (
-        <div className="flex justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary-600" />
-        </div>
-      ) : chapters.length === 0 ? (
-        <Card title="Chapters">
-          <p className="text-gray-600">No chapters could be read from this plan&apos;s PDF. Make sure the PDF contains headings like &quot;Chapter 1&quot;, &quot;1. Title&quot;, or &quot;Unit 1&quot;.</p>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {chapters.map((chapterTitle, chapterIndex) => {
-            const sessions = sessionsByChapter[chapterIndex] || [];
-            const isCompleted = progress?.completedByChapter?.[chapterIndex]?.completed;
-            const isExpanded = expandedChapters[chapterIndex];
-            const isAnalyzing = analyzingChapterIndex === chapterIndex;
-            return (
-              <div key={chapterIndex} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
-                {/* Chapter header: title (dropdown toggle) + Mark as completed (top right) */}
-                <div className="flex items-center justify-between gap-3 px-4 py-3 bg-gray-50 border-b border-gray-200">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedChapters((prev) => ({ ...prev, [chapterIndex]: !prev[chapterIndex] }))}
-                    className="flex-1 flex items-center gap-2 text-left font-medium text-gray-900 hover:text-primary-700"
-                  >
-                    <span className="text-primary-600">{isExpanded ? '▼' : '▶'}</span>
-                    {chapterTitle || `Chapter ${chapterIndex + 1}`}
-                    {sessions.length > 0 && (
-                      <span className="text-sm font-normal text-gray-500">({sessions.length} video{sessions.length !== 1 ? 's' : ''})</span>
-                    )}
-                  </button>
-                  <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {isCompleted && (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-800 text-sm font-medium">
-                        ✓ Completed
-                      </span>
-                    )}
-                    {!isCompleted && pendingCompleteChapter !== chapterIndex && (
-                      <label className="inline-flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={false}
-                          onChange={(e) => handleMarkCompleteClick(chapterIndex, e.target.checked)}
-                          disabled={completing === chapterIndex}
-                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                        />
-                        <span className="text-sm text-gray-700">Mark as completed</span>
-                      </label>
-                    )}
-                    {isCompleted && (
-                      <label className="inline-flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked
-                          onChange={(e) => !e.target.checked && handleMarkComplete(chapterIndex, false)}
-                          disabled={completing === chapterIndex}
-                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                        />
-                        <span className="text-sm text-gray-700">Mark as completed</span>
-                      </label>
-                    )}
-                    {pendingCompleteChapter === chapterIndex && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <label className="text-sm text-gray-700">Completion date:</label>
-                        <input
-                          type="date"
-                          value={completionDate}
-                          onChange={(e) => setCompletionDate(e.target.value)}
-                          className="px-2 py-1.5 text-sm rounded border border-gray-300"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleMarkComplete(chapterIndex, true, completionDate)}
-                          disabled={completing === chapterIndex}
-                          className="px-3 py-1.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPendingCompleteChapter(null)}
-                          className="px-3 py-1.5 rounded-lg border border-gray-300 text-sm hover:bg-gray-50"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div className="p-4 space-y-4">
-                    {progress?.pacingFeedback?.find((p) => p.chapterIndex === chapterIndex) && (
-                      <p className="text-sm text-gray-600">
-                        {progress.pacingFeedback.find((p) => p.chapterIndex === chapterIndex).message}
-                      </p>
-                    )}
-
-                    {/* Videos list with titles */}
-                    {sessions.length > 0 ? (
-                      <div>
-                        <p className="text-sm font-medium text-gray-700 mb-2">Videos for this chapter</p>
-                        <ul className="space-y-2 mb-4">
-                          {sessions.map((s) => (
-                            <SessionRow
-                              key={s.id}
-                              session={s}
-                              chapterTitle={chapterTitle}
-                              onDeleted={() => refreshSessionsForChapter(chapterIndex)}
-                            />
-                          ))}
-                        </ul>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-500">No videos yet. Add a video below and submit for analysis.</p>
-                    )}
-
-                    {/* Analysis in progress */}
-                    {isAnalyzing && (
-                      <div className="p-3 rounded-lg bg-primary-50 border border-primary-200">
-                        <p className="text-sm font-medium text-primary-800 mb-2">Analyzing your video…</p>
-                        <div className="h-2 bg-primary-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-primary-600 rounded-full animate-pulse w-full" style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
-                        </div>
-                        <p className="text-xs text-primary-700 mt-1">Analysis usually takes 1–2 minutes. This will update automatically.</p>
-                      </div>
-                    )}
-
-                    {/* Upload next / Add another video */}
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setOpenUploadChapter(openUploadChapter === chapterIndex ? null : chapterIndex)}
-                        className="w-full px-3 py-2.5 text-left text-sm font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 flex items-center justify-between"
-                      >
-                        {sessions.length === 0 ? 'Upload video or paste link' : 'Add another video'}
-                        <span className="text-primary-600">{openUploadChapter === chapterIndex ? '▼' : '▶'}</span>
-                      </button>
-                      {openUploadChapter === chapterIndex && (
-                        <form onSubmit={(e) => handleSubmitForAnalysis(e, chapterIndex)} className="p-3 bg-gray-50 space-y-4 border-t border-gray-200">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Video title <span className="text-red-600">*</span></label>
-                            <input
-                              type="text"
-                              value={uploadTitle}
-                              onChange={(e) => { setUploadTitle(e.target.value); setUploadError(''); }}
-                              placeholder="Enter a title for this video (required)"
-                              className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Date of upload / recording</label>
-                            <input
-                              type="date"
-                              value={uploadDate}
-                              onChange={(e) => setUploadDate(e.target.value)}
-                              className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">YouTube or video URL</label>
-                            <input
-                              type="url"
-                              value={uploadUrl}
-                              onChange={(e) => { setUploadUrl(e.target.value); setUploadError(''); }}
-                              placeholder="https://youtube.com/... or video link"
-                              className="w-full px-2 py-1.5 text-sm rounded border border-gray-300"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Or upload from device</label>
-                            <input
-                              type="file"
-                              accept="video/*"
-                              onChange={(e) => { setUploadFile(e.target.files?.[0] || null); setUploadError(''); }}
-                              className="w-full text-sm text-gray-600 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-primary-50 file:text-primary-700"
-                            />
-                          </div>
-                          <button
-                            type="submit"
-                            disabled={(!uploadUrl.trim() && !uploadFile) || uploadingFor === chapterIndex}
-                            className="w-full px-4 py-2.5 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
-                          >
-                            {uploadingFor === chapterIndex ? 'Submitting…' : 'Submit for analysis'}
-                          </button>
-                          {uploadError && uploadingFor === chapterIndex && (
-                            <p className="text-sm text-red-600" role="alert">{uploadError}</p>
-                          )}
-                        </form>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
@@ -553,7 +349,6 @@ function VideoFeedbackPanel({ data }) {
 
   return (
     <div className="space-y-4 text-sm">
-      {/* 1. Teaching Effectiveness */}
       <section>
         <h4 className="font-semibold text-gray-800 mb-2">1. Teaching effectiveness</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -576,7 +371,6 @@ function VideoFeedbackPanel({ data }) {
         </div>
       </section>
 
-      {/* 2. Syllabus progress */}
       <section>
         <h4 className="font-semibold text-gray-800 mb-2">2. Syllabus progress status</h4>
         {chapter_name && <p className="text-gray-700 font-medium">{chapter_name}</p>}
@@ -593,7 +387,6 @@ function VideoFeedbackPanel({ data }) {
         )}
       </section>
 
-      {/* 3. Posture & body language */}
       <section>
         <h4 className="font-semibold text-gray-800 mb-2">3. Posture & body language feedback</h4>
         {posture_analysis?.error && (
@@ -627,7 +420,6 @@ function VideoFeedbackPanel({ data }) {
         )}
       </section>
 
-      {/* 4. Suggested improvements */}
       <section>
         <h4 className="font-semibold text-gray-800 mb-2">4. Suggested improvements</h4>
         <ul className="list-disc list-inside text-gray-700 space-y-0.5">

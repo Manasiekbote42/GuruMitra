@@ -26,6 +26,8 @@ const upload = multer({
   },
 });
 
+const MIN_VIDEOS_PER_MONTH = Math.max(1, parseInt(process.env.MIN_VIDEOS_PER_MONTH, 10) || 4);
+
 const router = express.Router();
 router.use(authenticate, requireRole('teacher'));
 
@@ -543,13 +545,28 @@ router.get('/video-feedback/:videoId', async (req, res) => {
   }
 });
 
-/** List teacher's own sessions (single source of truth: DB only). Session history by created_at. Optional: plan_id, chapter_index for Video Analysis. */
+/** List teacher's own sessions (single source of truth: DB only). Optional: plan_id, chapter_index; month=YYYY-MM for monthly Video Analysis. */
 router.get('/sessions', async (req, res) => {
   try {
     const planId = (req.query.plan_id || '').trim() || null;
     const chapterIndex = req.query.chapter_index != null ? Number(req.query.chapter_index) : null;
+    const monthParam = (req.query.month || '').trim() || null; // YYYY-MM
+    let monthStart = null;
+    let monthEnd = null;
+    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      monthStart = `${monthParam}-01T00:00:00.000Z`;
+      const [y, m] = monthParam.split('-').map(Number);
+      monthEnd = m === 12 ? `${y + 1}-01-01T00:00:00.000Z` : `${y}-${String(m + 1).padStart(2, '0')}-01T00:00:00.000Z`;
+    }
+
     let result;
-    if (planId) {
+    if (monthStart && monthEnd) {
+      result = await query(
+        `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index, upload_metadata
+         FROM classroom_sessions WHERE teacher_id = $1 AND created_at >= $2 AND created_at < $3 ORDER BY created_at DESC`,
+        [req.user.id, monthStart, monthEnd]
+      );
+    } else if (planId) {
       if (chapterIndex !== null && !Number.isNaN(chapterIndex)) {
         result = await query(
           `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, academic_plan_id, chapter_index, upload_metadata
@@ -574,6 +591,49 @@ router.get('/sessions', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
+});
+
+/** Monthly video analysis progress: count vs minimum required per month. */
+router.get('/video-analysis/monthly-progress', async (req, res) => {
+  try {
+    const monthParam = (req.query.month || '').trim() || null;
+    const now = new Date();
+    const year = monthParam && /^\d{4}-\d{2}$/.test(monthParam)
+      ? parseInt(monthParam.slice(0, 4), 10)
+      : now.getFullYear();
+    const month = monthParam && /^\d{4}-\d{2}$/.test(monthParam)
+      ? parseInt(monthParam.slice(5, 7), 10)
+      : now.getMonth() + 1;
+    const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+    const monthStart = `${monthStr}-01T00:00:00.000Z`;
+    const monthEnd = month === 12 ? `${year + 1}-01-01T00:00:00.000Z` : `${year}-${String(month + 1).padStart(2, '0')}-01T00:00:00.000Z`;
+
+    const result = await query(
+      `SELECT id, teacher_id, video_url, uploaded_at, status, error_message, created_at, upload_metadata
+       FROM classroom_sessions WHERE teacher_id = $1 AND created_at >= $2 AND created_at < $3 ORDER BY created_at DESC`,
+      [req.user.id, monthStart, monthEnd]
+    );
+    const sessions = result.rows;
+    const count = sessions.length;
+    const monthLabel = new Date(year, month - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+    const message = count >= MIN_VIDEOS_PER_MONTH
+      ? `You have uploaded ${count} video(s) this month. Target met (minimum ${MIN_VIDEOS_PER_MONTH}).`
+      : `You have uploaded ${count} of ${MIN_VIDEOS_PER_MONTH} required videos this month. ${MIN_VIDEOS_PER_MONTH - count} more to go.`;
+
+    res.json({
+      month: monthStr,
+      year,
+      monthLabel,
+      count,
+      minimum: MIN_VIDEOS_PER_MONTH,
+      met: count >= MIN_VIDEOS_PER_MONTH,
+      sessions,
+      message,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch monthly progress' });
   }
 });
 
